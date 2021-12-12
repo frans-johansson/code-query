@@ -1,6 +1,7 @@
 """
 Downloads the data required for the project to a local directory.
 Code adapted from: https://github.com/github/CodeSearchNet/blob/master/script/download_dataset.py 
+under the MIT license
 """
 
 import argparse

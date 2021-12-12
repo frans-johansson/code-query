@@ -1,0 +1,11 @@
+#!/bin/sh
+
+set -e
+
+if nvidia-smi 2>/dev/null; then
+    echo "Starting GPU console"
+    docker run --gpus all -it --net=host -v $(pwd):/home/dev codery:gpu
+else
+    echo "Starting CPU console"
+    docker run -it --net=host -v $(pwd):/home/dev codery:cpu
+fi
