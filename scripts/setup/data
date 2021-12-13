@@ -7,4 +7,4 @@ export $(cat config.env)
 
 rm -rf $RAW_DIR
 python3 scripts/setup/download_data.py -l $LANGUAGES -d $RAW_DIR
-python3 scripts/setup/preprocess_data.py -l $LANGUAGES -d $RAW_DIR
+python3 scripts/setup/process_data.py -l $LANGUAGES -d $RAW_DIR
