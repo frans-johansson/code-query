@@ -5,6 +5,15 @@ cd $(dirname "$0")/../..
 
 export $(cat config.env)
 
+wget -O $FASTTEXT_MODEL_FILE https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz
+
 rm -rf $RAW_DIR
-python3 scripts/setup/download_data.py -l $LANGUAGES -d $RAW_DIR
-python3 scripts/setup/process_data.py -l $LANGUAGES -d $RAW_DIR
+python3 scripts/setup/download_data.py \
+    -l $LANGUAGES \
+    -d $RAW_DIR
+python3 scripts/setup/process_data.py \
+    -l $LANGUAGES \
+    -r $RAW_DIR \
+    -d $PROCESSED_DIR \ 
+    -f $FASTTEXT_MODEL_FILE \
+    -n $NATURAL_LANGUAGES
