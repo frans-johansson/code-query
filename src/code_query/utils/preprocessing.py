@@ -9,7 +9,6 @@ be accumulated into a single `corpus` file, which means new splits
 will have to be generated when used for training.
 """
 
-import argparse
 import pickle
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
@@ -23,6 +22,10 @@ from tqdm import tqdm
 from code_query.config import DATA
 from code_query.utils.helpers import get_lang_dir, get_model_dir
 from code_query.utils.serialize import jsonl_gzip_load, jsonl_gzip_dump
+from code_query.utils.logging import get_logger
+
+
+logger = get_logger("preprocessing")
 
 
 def docstring_is_language(
@@ -33,7 +36,7 @@ def docstring_is_language(
     ) -> bool:
     """
     Predicate function determining if the docstring of a given sample
-    is likely to be one of the given languages using a fasttext model.
+    is likely to be one of the given languages using a fastText model.
     If any of the given languages are identified with confidence greater
     than the given threshold, the predicate returns `True`. 
     
@@ -60,20 +63,19 @@ def process_evaluation_data(code_lang: str) -> None:
     # Read in the pickled data
     pkl_file = raw_dir / DATA.FILES.RAW_FULL_FILE.format(language=code_lang)
     with open(pkl_file, "rb") as source:
-        print(f"Loading {pkl_file}")
+        logger.info("Loading %s" % pkl_file)
         eval_raw = pickle.load(source)
     
-    # Extract relevant fields
-    eval_data = []
-    for raw in tqdm(eval_raw, desc=f"{code_lang} evaluation data"):
-        eval_data.append({
-            "url": raw["url"],
-            "identifier": raw["identifier"],
-            "code": raw["function"],
-            "code_tokens": raw["function_tokens"],
-            "query": raw["docstring_summary"],
-            "query_tokens": raw["docstring_tokens"],
-        })
+    # Extract and process relevant fields
+    logger.info("Processing %s evaluation data" % code_lang)
+    eval_data = [{
+        "url": raw["url"],
+        "identifier": raw["identifier"],
+        "code": raw["function"],
+        "code_tokens": raw["function_tokens"],
+        "query": raw["docstring_summary"],
+        "query_tokens": raw["docstring_tokens"]
+    } for raw in eval_raw]
     
     # Serialize
     jsonl_gzip_dump(eval_data, out_dir / "eval.jsonl.gz")
@@ -92,6 +94,7 @@ def process_training_data(
     filter_predicate = lambda _: True
     if query_langs:
         # Set up natural language filter
+        logger.info("Setting up fastText language model")
         model = fasttext.load_model(DATA.QUERY_LANGUAGE_FILTER.FASTTEXT_FILE)
         labels = {
             f"__label__{pycountry.languages.get(name=lang.capitalize()).alpha_2}" 
@@ -106,20 +109,20 @@ def process_training_data(
     # Accumulate data to a single list
     raw_dir = Path(DATA.DIR.RAW)
     acc_data = []
+    logger.info("Processing %s training, validation and testing data" % code_lang)
     for split in DATA.SPLIT_NAMES:
         split_dir = raw_dir / DATA.FILES.RAW_SPLITS.format(language=code_lang, split=split)
         # Chain together iterables over all files and extract relevant data
         split_chain = chain.from_iterable(jsonl_gzip_load(file) for file in split_dir.iterdir())
-        # Append to acc_data with a nice progress bar
-        for raw in tqdm(filter(filter_predicate, split_chain), desc=str(split_dir)):
-            acc_data.append({
-                "url": raw["url"],
-                "identifier": raw["func_name"],
-                "code": raw["code"],
-                "code_tokens": raw["code_tokens"],
-                "query": raw["docstring"],
-                "query_tokens": raw["docstring_tokens"],
-            })
+        # Append to acc_data
+        acc_data += [{
+            "url": raw["url"],
+            "identifier": raw["func_name"],
+            "code": raw["code"],
+            "code_tokens": raw["code_tokens"],
+            "query": raw["docstring"],
+            "query_tokens": raw["docstring_tokens"],
+        } for raw in filter(filter_predicate, split_chain)]
     
     # Serialize the accumulated data into one file
     out_dir = get_model_dir(code_lang, query_langs)

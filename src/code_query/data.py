@@ -48,8 +48,10 @@ class CSNetDataManager(object):
         self._tiny = tiny
         # Check if the raw data for the given language is available
         if not CSNetDataManager.has_downloaded(code_lang):
-            logger.info("Did not find data for {%s}. Downloading now." % code_lang)
+            logger.info("Did not find data for %s. Downloading now." % code_lang)
             CSNetDataManager.download_raw(code_lang)
+        if not CSNetDataManager.has_processed(code_lang):
+            logger.info("Did not find processed data for %s. Processing now." % code_lang)
             CSNetDataManager.process_raw(code_lang, query_langs)
     
     @cached_property
@@ -75,8 +77,8 @@ class CSNetDataManager(object):
         return dir.exists()
 
     @staticmethod
-    def has_processed(code_lang: str) -> bool:
-        dir = get_lang_dir(code_lang)
+    def has_processed(code_lang: str, query_langs: Optional[List[str]]=None) -> bool:
+        dir = get_model_dir(code_lang, query_langs)
         return dir.exists()
 
     @staticmethod
@@ -102,7 +104,7 @@ class CSNetDataManager(object):
         # Download
         download_file(url, zip_path, description=f"Downloading {code_lang}.zip")
         # Unzip
-        logger.info("Unzipping {%s}" % zip_path)
+        logger.info("Unzipping %s" % zip_path)
         with zipfile.ZipFile(zip_path, "r") as source:
             source.extractall(DATA.DIR.RAW)
         logger.info("Unzip done")
@@ -117,11 +119,12 @@ class CSNetDataset(Dataset):
         data_manager = CSNetDataManager(code_lang, query_langs, tiny=tiny)
         self.training = training
         self._source_data = data_manager.corpus if training else data_manager.eval
-        logger.info(
-            "Setting up CodeSearchNet dataset: model_name=%s code_lang=%s query_langs=%s training=%s" 
+        logger.info("Setting up CodeSearchNet dataset")
+        logger.debug(
+            "model_name=%s code_lang=%s query_langs=%s training=%s" 
             % (model_name, code_lang, query_langs, training)
         )
-        logger.info("Found %d rows of data" % len(self._source_data))
+        logger.debug("Found %d rows of data" % len(self._source_data))
         logger.info("Tokenizing code data")
         code_tokenized = CSNetDataset.tokenized(
             model_name,
@@ -142,7 +145,7 @@ class CSNetDataset(Dataset):
         # Get the appropriate tokenizer
         if model_name in MODELS:
             tokenizer = AutoTokenizer.from_pretrained(MODELS[model_name])
-            logger.info("Using pretrained tokenizer: %s" % tokenizer.__str__())
+            logger.debug("Using pretrained tokenizer: %s" % tokenizer.__str__())
         else:
             # TODO: Train a custom tokenizer
             raise NotImplementedError()
@@ -204,6 +207,9 @@ class CSNetDataModule(pl.LightningDataModule):
         self._test_split = None
     
     def prepare_data(self):
+        """
+        Takes care of downloading and processing the data, saving the results to disk for later
+        """
         CSNetDataset(self.model_name, self.code_lang, self.query_langs)
         
     def setup(self, stage: Optional[str]=None):
