@@ -50,9 +50,13 @@ class CSNetDataManager(object):
         if not CSNetDataManager.has_downloaded(code_lang):
             logger.info("Did not find data for %s. Downloading now." % code_lang)
             CSNetDataManager.download_raw(code_lang)
+        else:
+            logger.info("Found downloaded data for %s" % code_lang)
         if not CSNetDataManager.has_processed(code_lang):
             logger.info("Did not find processed data for %s. Processing now." % code_lang)
             CSNetDataManager.process_raw(code_lang, query_langs)
+        else:
+            logger.info("Found processed data for %s" % code_lang)
     
     @cached_property
     def corpus(self) -> pd.DataFrame:
@@ -98,7 +102,7 @@ class CSNetDataManager(object):
         assert code_lang in DATA.AVAILABLE_LANGUAGES, "Unknown programming language"
         assert not CSNetDataManager.has_downloaded(code_lang), "Programming language already downloaded"
         raw_path = Path(DATA.DIR.RAW)
-        raw_path.mkdir(exist_ok=True)
+        raw_path.mkdir(exist_ok=True, parents=True)
         url = DATA.URL.format(language=code_lang)
         zip_path = raw_path / f"{code_lang}.zip"
         # Download
