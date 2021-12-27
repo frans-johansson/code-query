@@ -1,0 +1,3 @@
+# Weights and Biases configuration.
+PROJECT_NAME: "TDDE16 Project"
+API_KEY_FILE: "wandb.key"

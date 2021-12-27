@@ -1,0 +1,21 @@
+# Seed for NumPy, PyTorch and Python RNGs.
+SEED: 123456
+# Train, test and validation split percentages. These will be randomly constructed before training.
+# Use the SEED for deterministic results!
+DATA_SPLITS:
+- 0.8  # Train
+- 0.1  # Validation
+- 0.1  # Test
+# Vocabulary configuration for models without an existing corresponding tokenizer (e.g. BERT).
+# Currently only applies to the NBOW baseline.
+VOCABULARY:
+  CODE:
+    SIZE: 10000
+    INCLUDE_THRESHOLD: 10
+  query:
+    SIZE: 10000
+    INCLUDE_THRESHOLD: 10
+# Settings for sequences used during training
+SEQUENCE_LENGTHS:
+  CODE: 200
+  QUERY: 30  

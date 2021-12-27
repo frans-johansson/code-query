@@ -1,0 +1,33 @@
+# URL where the zipped data can be fetched from. Has to be a Python format string
+# where the "{language}" will be replaced by each of the programming languages.
+URL: "https://s3.amazonaws.com/code-search-net/CodeSearchNet/v2/{language}.zip"
+# Lists available programming languages to fetch
+AVAILABLE_LANGUAGES:
+- "python"
+- "javascript"
+- "java"
+- "ruby"
+- "php"
+- "go"
+# Configuration for the natural language filtering option on the data
+QUERY_LANGUAGE_FILTER:
+  FASTTEXT_URL: "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz"
+  FASTTEXT_FILE: "data/lid.176.ftz" 
+  DEFAULT_DIR: "all"  # Where to put files when no filter is specified
+# Directory structure for cached data.
+DIR:
+  RAW: "data/raw"           # Place raw files from the URL here.
+  FINAL: "data/{language}"  # Place parsed files in subdirectories per programming language here.
+# Names of the splits in the raw data
+SPLIT_NAMES:
+- "train"     
+- "valid"
+- "test"
+# Paths to specific data files.
+FILES:
+  RAW_SPLITS: "{language}/final/jsonl/{split}"            # Where to find the raw train/test/valid .jsonl.gz files
+                                                          # written as a Python format string for programming language
+                                                          # and split.
+  RAW_FULL_FILE: "{language}_dedupe_definitions_v2.pkl"   # Where to find the dedupe pickle file with all the data for
+                                                          # a given language.
+TINY_SIZE: 1000  # How many samples to load when using the "tiny" setting
