@@ -1,7 +1,0 @@
-numpy
-pandas
-matplotlib
-seaborn
-ipykernel
-ipython
-python-dotenv
