@@ -17,7 +17,6 @@ from functools import partial
 
 import fasttext
 import pycountry
-from tqdm import tqdm
 
 from code_query.config import DATA
 from code_query.utils.helpers import get_lang_dir, get_model_dir
@@ -71,10 +70,8 @@ def process_evaluation_data(code_lang: str) -> None:
     eval_data = [{
         "url": raw["url"],
         "identifier": raw["identifier"],
-        "code": raw["function"],
-        "code_tokens": raw["function_tokens"],
-        "query": raw["docstring_summary"],
-        "query_tokens": raw["docstring_tokens"]
+        "code": " ".join(raw["function_tokens"]),
+        "query": " ".join(raw["docstring_tokens"]),
     } for raw in eval_raw]
     
     # Serialize
@@ -118,10 +115,8 @@ def process_training_data(
         acc_data += [{
             "url": raw["url"],
             "identifier": raw["func_name"],
-            "code": raw["code"],
-            "code_tokens": raw["code_tokens"],
-            "query": raw["docstring"],
-            "query_tokens": raw["docstring_tokens"],
+            "code": " ".join(raw["code_tokens"]),
+            "query": " ".join(raw["docstring_tokens"])
         } for raw in filter(filter_predicate, split_chain)]
     
     # Serialize the accumulated data into one file
