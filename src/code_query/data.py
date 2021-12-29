@@ -4,7 +4,7 @@ Most of the configuration options for these procedures can be controlled in the
 data.yml, training.yml and models.yml configuration files.
 """
 import zipfile
-from typing import Callable, Iterator, List, Optional, Sequence
+from typing import Callable, Dict, Iterator, List, Optional, Sequence
 from pathlib import Path
 from functools import cached_property, partial
 from itertools import islice, chain
@@ -91,7 +91,7 @@ class CSNetDataManager(object):
         logger.info("Reading eval data")
         return self._load_as_dataframe(self._root_dir / "eval.jsonl.gz")
 
-    def _load_as_dataframe(self, path) -> pd.DataFrame:
+    def _load_as_dataframe(self, path: Path) -> pd.DataFrame:
         """
         Load a given .jsonl.gz file into a Pandas `DataFrame`.
         """
@@ -295,7 +295,7 @@ class CSNetDataset(Dataset):
         """
         return len(self._source_data)
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
         Get a code-query pair from the internal `TensorDataset` as an appropriately named dictionary.
         """
@@ -344,13 +344,13 @@ class CSNetDataModule(pl.LightningDataModule):
         self._valid_split = None
         self._test_split = None
     
-    def prepare_data(self):
+    def prepare_data(self) -> None:
         """
         Takes care of downloading and processing the data, saving the results to disk for later.
         """
         CSNetDataset(self.model_name, self.code_lang, self.query_langs)
         
-    def setup(self, stage: Optional[str]=None):
+    def setup(self, stage: Optional[str]=None) -> None:
         """
         Applies tokenization and train-valid-test splits to the data when called with stage set to
         "fit", "validate" or "test". The splits are controlled in the training.yml config file.
@@ -372,26 +372,26 @@ class CSNetDataModule(pl.LightningDataModule):
             # eval_dataset = CSNetDataset(self.model_name, self.code_lang, self.query_langs, training=False)
             pass
 
-    def train_dataloader(self):
+    def train_dataloader(self) -> DataLoader:
         """
         Returns the PyTorch `DataLoader` for model training.
         """
         return DataLoader(self._train_split, batch_size=self.batch_size, shuffle=True)
             
-    def val_dataloader(self):
+    def val_dataloader(self) -> DataLoader:
         """
         Returns the PyTorch `DataLoader` for model validation.
         """
         return DataLoader(self._valid_split, batch_size=self.batch_size, shuffle=True)
 
-    def test_dataloader(self):
+    def test_dataloader(self) -> DataLoader:
         """
         Returns the PyTorch `DataLoader` for model testing. Uses fixed batches as per the
         original CodeSearchNet paper.
         """        
         return DataLoader(self._test_split, batch_size=self.batch_size, shuffle=False)
 
-    def predict_dataloader(self):
+    def predict_dataloader(self) -> DataLoader:
         """
         Returns the PyTorch `DataLoader` for NDCG evaluation.
         """    

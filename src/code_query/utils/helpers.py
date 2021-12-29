@@ -29,7 +29,7 @@ def get_identification_model() -> fasttext.FastText:
     return fasttext.load_model(model_file)
 
 
-def download_file(url: str, output_path: Path, description="Downloading") -> None:
+def download_file(url: str, output_path: Path, description: str="Downloading") -> None:
     """
     Wraps HTTP file downloads in a tqdm progress bar.
     """

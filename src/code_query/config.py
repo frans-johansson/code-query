@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+from typing import Any
+from typing_extensions import Self
 
 from code_query.utils.serialize import yml_load
 
@@ -9,19 +11,19 @@ class RecursiveNamespace(SimpleNamespace):
     adapted from https://dev.to/taqkarim/extending-simplenamespace-for-nested-dictionaries-58e8
     """
     @staticmethod
-    def from_yml(file_name: str):
+    def from_yml(file_name: str) -> Self:
         # Read in configuration from .yml file
         config = yml_load(file_name)
         return RecursiveNamespace(**config)
 
     @staticmethod
-    def map_entry(entry):
+    def map_entry(entry: Any) -> Any:
         if isinstance(entry, dict):
             return RecursiveNamespace(**entry)
 
         return entry
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         for key, val in kwargs.items():
             if type(val) == dict:
