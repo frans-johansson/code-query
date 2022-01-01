@@ -56,7 +56,6 @@ class CSNetDataManager(object):
             tiny (bool, Optional): Only load a small subset of data. Defaults to `False`. 
         """
         super().__init__()
-        assert code_lang in DATA.AVAILABLE_LANGUAGES, "Unknown programming language"
         # Root directory of cached files
         self._model_dir = get_model_dir(code_lang, query_langs)
         self._root_dir = get_lang_dir(code_lang)
@@ -123,7 +122,6 @@ class CSNetDataManager(object):
         Handle preprocessing of a downloaded raw dataset for a given programming language
         and optional natural languages for query filtering.
         """
-        assert code_lang in DATA.AVAILABLE_LANGUAGES, "Unknown programming language"
         assert CSNetDataManager.has_downloaded(code_lang), "Programming language not downloaded"
         process_training_data(
             code_lang,
@@ -138,7 +136,6 @@ class CSNetDataManager(object):
         """
         Download and unzip the raw data for a given programming language
         """
-        assert code_lang in DATA.AVAILABLE_LANGUAGES, "Unknown programming language"
         assert not CSNetDataManager.has_downloaded(code_lang), "Programming language already downloaded"
         raw_path = Path(DATA.DIR.RAW)
         raw_path.mkdir(exist_ok=True, parents=True)
