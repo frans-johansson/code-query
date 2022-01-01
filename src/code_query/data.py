@@ -198,29 +198,51 @@ class CSNetDataset(Dataset):
         logger.debug("Found %d rows of data" % len(self._source_data))
         logger.info("Tokenizing code data")
         code_tokenized = self._tokenized(
-            self._tokenizer(TRAINING.SEQUENCE_LENGTHS.CODE),
-            self._source_data["code"].values.tolist()
+            self._get_tokenizer(TRAINING.SEQUENCE_LENGTHS.CODE),
+            self._source_data["code"].values.tolist(),
+            self._code_cache_file
         )
         logger.info("Tokenizing query data")
         query_tokenized = self._tokenized(
-            self._tokenizer(TRAINING.SEQUENCE_LENGTHS.QUERY),
+            self._get_tokenizer(TRAINING.SEQUENCE_LENGTHS.QUERY),
             self._source_data["query"].values.tolist(),
+            self._query_cache_file
         )
         self._code_and_query = TensorDataset(code_tokenized, query_tokenized)
         logger.info("Done setting up CodeSearchNet dataset")
 
+    def _generic_cache_file(self, name: str) -> str:
+        """
+        Returns the string path to a generic named model specific cache file
+        """
+        size = "tiny" if self._data_manager._tiny else "full"
+        file = f"{size}_{name}"
+        return get_model_dir(self._code_lang, self._query_langs) / Path(file)
+
     @property
-    def _bpe_cache_file(self) -> str:
+    def _bpe_cache_file(self) -> Path:
         """
         Path to where the custom BPE tokenizer should be serialized to and from
         """
-        size = "tiny" if self._data_manager._tiny else "full"
-        file = f"{size}_bpe_tokenizer.json"
-        return str(
-            get_model_dir(self._code_lang, self._query_langs) / Path(file)
-        )
+        return self._generic_cache_file("bpe_tokenizer.json")
 
-    def _tokenizer(self, sequence_length: int) -> TokenizerFunction:
+    @property
+    def _code_cache_file(self) -> Path:
+        """
+        Path to where pre-tokenized queries should be serialized to and from
+        """
+        name = f"{self._model_name}_code_tokens.pkl"
+        return self._generic_cache_file(name)
+
+    @property
+    def _query_cache_file(self) -> Path:
+        """
+        Path to where pre-tokenized queries should be serialized to and from
+        """
+        name = f"{self._model_name}_query_tokens.pkl"
+        return self._generic_cache_file(name)
+
+    def _get_tokenizer(self, sequence_length: int) -> TokenizerFunction:
         """
         Get a tokenizer function mapping strings to `torch.Tensor`s for the
         current dataset. Will either use a pretrained BERT-like tokenizer or
@@ -245,9 +267,9 @@ class CSNetDataset(Dataset):
         Train or load a previously trained BPE tokenizer which will pad or truncate the data
         to a given `max_length`. The tokenizer will be trained on both codes and queries.
         """
-        if Path(self._bpe_cache_file).exists():
+        if self._bpe_cache_file.exists():
             logger.info("Found an existing BPE tokenizer at %s" % self._bpe_cache_file)
-            tokenizer = Tokenizer.from_file(self._bpe_cache_file)
+            tokenizer = Tokenizer.from_file(str(self._bpe_cache_file))
         else:
             logger.info("Training a new BPE tokenizer")
             tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
@@ -267,9 +289,11 @@ class CSNetDataset(Dataset):
             # Train on the entire sequence of queries and codes,
             # and serialize the resulting tokenizer to JSON
             tokenizer.train_from_iterator(data_stream, trainer)
-            tokenizer.save(self._bpe_cache_file)
+            tokenizer.save(str(self._bpe_cache_file))
             logger.info("Saved BPE tokenizer to %s" % self._bpe_cache_file)
         
+        logger.debug("BPE tokenizer has vocabulary size %d" % tokenizer.get_vocab_size())
+
         # Set up padding and truncation to match the BERT-like tokenizers
         tokenizer.enable_padding(
             pad_id=tokenizer.token_to_id("[PAD]"),
@@ -280,15 +304,34 @@ class CSNetDataset(Dataset):
         # Return a callable with the same interface as for the BERT-like tokenizers
         return lambda example: torch.tensor(tokenizer.encode(example).ids)
 
-    def _tokenized(self, tokenize: TokenizerFunction, data: Sequence) -> torch.Tensor:
+    def _tokenized(
+            self,
+            tokenize: TokenizerFunction,
+            data: Sequence,
+            cache_file: Path
+        ) -> torch.Tensor:
         """
         Applies a given `TokenizerFunction` to a sequence of strings. The resuls are stacked
         into one tensor of shape (N, L) where N is the number of data samples and L is the
         maximum length of the model.
+
+        The results can be serialized to and from a given `cache_file` to save time on subsequent
+        training runs
         """ 
+        # Check if there are cached features first
+        if cache_file.exists():
+            logger.info("Found pretokenized data at %s" % cache_file)
+            return torch.load(cache_file)
+        
+        if not self._data_manager._tiny:
+            logger.warning("Tokenizing full data set from scratch. This might take a while")
+
         # Process and save features
         tokens = [tokenize(sample) for sample in tqdm(data, desc="Tokenizing", unit="samples")]
-        return torch.stack(tokens, dim=0)
+        tokens = torch.stack(tokens, dim=0)
+        torch.save(tokens, cache_file)
+        logger.info("Saved tokenized data to %s" % cache_file)
+        return tokens
 
     def __len__(self) -> Iterator:
         """
