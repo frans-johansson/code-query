@@ -4,6 +4,7 @@ Most of the configuration options for these procedures can be controlled in the
 data.yml, training.yml and models.yml configuration files.
 """
 import zipfile
+from argparse import ArgumentParser, Namespace
 from typing import Callable, Dict, Iterator, List, Optional, Sequence
 from pathlib import Path
 from functools import cached_property, partial
@@ -311,20 +312,25 @@ class CSNetDataModule(pl.LightningDataModule):
     Responsible for preparing data splits for training and providing data for evaluation.
     This is the main class instantiated during training.
     """
-    def __init__(
-            self,
-            batch_size: int,
-            model_name: str,
-            code_lang: str,
-            query_langs: Optional[List[str]]=None,
-            tiny: bool=False
-        ) -> None:
+    @staticmethod
+    def add_argparse_args(parent_parser: ArgumentParser):
+        """
+        Add data module specific arguments to a parent `ArgumentParser`
+        """
+        parser = parent_parser.add_argument_group("CSNetDataModule")
+        parser.add_argument("--batch-size", type=int, default=10)
+        parser.add_argument("--code-lang", type=str, choices=DATA.AVAILABLE_LANGUAGES)
+        parser.add_argument("--query-langs", type=List[str], required=False, default=None)
+        parser.add_argument("--tiny", action="store_true")
+        return parent_parser
+
+    def __init__(self, hparams: Namespace) -> None:
         """
         Initializes a CodeSearchNet data module for training, validation, testing and final evaluation.
 
-        Args:
+        Hyperparameters:
             batch_size (int): The number of samples in each mini-batch
-            model_name (str): The name of the model being trained, e.g. CodeBERT or NBOW.
+            encoder_type (str): The name of the model being trained, e.g. CodeBERT or NBOW.
                 Controls which type of tokenization is applied.
             code_lang (str): The programming language to download or load from disk.
             query_langs ([str], Optional): Specifies which natural languages to filter
@@ -334,11 +340,12 @@ class CSNetDataModule(pl.LightningDataModule):
             tiny (bool, Optional): Only load a small subset of data. Defaults to `False`. 
         """
         super().__init__()
-        self.code_lang = code_lang
-        self.query_langs = query_langs
-        self.model_name = model_name.upper()
-        self.batch_size = batch_size
-        self.tiny = tiny
+        self.save_hyperparameters(hparams)
+        self.code_lang = hparams.code_lang
+        self.query_langs = hparams.query_langs
+        self.model_name = hparams.encoder_type.value.upper()
+        self.batch_size = hparams.batch_size
+        self.tiny = hparams.tiny
         # Internal member fields for holding data splits
         self._train_split = None
         self._valid_split = None
@@ -348,7 +355,7 @@ class CSNetDataModule(pl.LightningDataModule):
         """
         Takes care of downloading and processing the data, saving the results to disk for later.
         """
-        CSNetDataset(self.model_name, self.code_lang, self.query_langs)
+        CSNetDataset(self.model_name, self.code_lang, self.query_langs, tiny=self.tiny)
         
     def setup(self, stage: Optional[str]=None) -> None:
         """
@@ -370,7 +377,7 @@ class CSNetDataModule(pl.LightningDataModule):
         if stage in ("predict", None):
             # TODO: Set up prediction data for NDCG
             # eval_dataset = CSNetDataset(self.model_name, self.code_lang, self.query_langs, training=False)
-            pass
+            raise NotImplementedError()
 
     def train_dataloader(self) -> DataLoader:
         """
