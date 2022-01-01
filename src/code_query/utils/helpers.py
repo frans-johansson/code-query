@@ -8,7 +8,8 @@ import requests
 from tqdm import tqdm
 import fasttext
 
-from code_query.config import DATA
+from code_query.config import DATA, TRAINING
+from code_query.model.encoder import Encoder
 
 
 def get_identification_model() -> fasttext.FastText:
@@ -54,11 +55,34 @@ def get_lang_dir(code_lang: str) -> Path:
     return Path(DATA.DIR.FINAL.format(language=code_lang))
 
 
+def get_nl_dir(query_langs: Optional[List[str]]) -> Path:
+    """
+    Get the common name used to represent a list of natural languages for filtering.
+    Defaults to a configured value, typically "all", if no lanugages are given.
+    """
+    nl_dir = "_".join(query_langs) if query_langs else DATA.QUERY_LANGUAGE_FILTER.DEFAULT_DIR
+    return Path(nl_dir)
+
+
 def get_model_dir(code_lang: str, query_langs: Optional[List[str]]) -> Path:
     """
     Returns the default configured data directory for a given programming language
     filtered on an optional set of natural languages.
     """
     lang_dir = get_lang_dir(code_lang)
-    nl_dir = "_".join(query_langs) if query_langs else DATA.QUERY_LANGUAGE_FILTER.DEFAULT_DIR
+    nl_dir = get_nl_dir(query_langs)
     return lang_dir / nl_dir
+
+
+def get_ckpt_dir(
+        encoder_type: Encoder.Types,
+        code_lang: str,
+        query_langs: Optional[List[str]]
+    ) -> Path:
+    """
+    Returns the path to the checkpoint files for a specific type of model
+    under the configured root checkpoint directory
+    """
+    root_dir = Path(TRAINING.CKPT_DIR)
+    nl_dir = get_nl_dir(query_langs)
+    return root_dir / encoder_type.value / code_lang / nl_dir

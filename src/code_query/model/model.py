@@ -58,8 +58,8 @@ class CodeQuery(pl.LightningModule):
         self.save_hyperparameters(hparams)
         EncoderClass = Encoder.get_type(hparams.encoder_type)
         self.encoder = EncoderClass(hparams)
-        self.fc = nn.LazyLinear(out_features=hparams.cq_h_dim)
-        self.bn = nn.LazyBatchNorm1d()
+        self.fc = nn.Linear(in_features=hparams.enc_h_dim, out_features=hparams.cq_h_dim)
+        self.bn = nn.BatchNorm1d(hparams.cq_h_dim)
         self.drop = nn.Dropout(p=hparams.cq_dropout)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
@@ -112,6 +112,7 @@ class CodeQuery(pl.LightningModule):
         """
         h_codes, h_queries = self._encoded_pair(X)
         loss = self._training_loss(h_codes, h_queries)
+        self.log("train/loss", loss)
         return loss
 
     def validation_step(self, X: Any, idx: int) -> torch.Tensor:
@@ -126,6 +127,7 @@ class CodeQuery(pl.LightningModule):
         """
         h_codes, h_queries = self._encoded_pair(X)
         loss = self._training_loss(h_codes, h_queries)
+        self.log("valid/loss", loss)
         return loss
 
     def configure_optimizers(self) -> None:

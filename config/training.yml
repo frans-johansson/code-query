@@ -14,4 +14,10 @@ VOCABULARY:
 # Settings for sequences used during training
 SEQUENCE_LENGTHS:
   CODE: 200
-  QUERY: 30  
+  QUERY: 30
+# Configuration for early stopping
+EARLY_STOPPING:
+  MIN_DELTA: 0.0005  # Minimum change in validation loss to count as an improvement
+  PATIENCE: 5        # Number of checks with no improvement until trainin is stopped
+# Checkpoint output directory
+CKPT_DIR: "runs/ckpts"  
