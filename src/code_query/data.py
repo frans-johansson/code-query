@@ -389,7 +389,7 @@ class CSNetDataModule(pl.LightningDataModule):
         """
         Returns the PyTorch `DataLoader` for model validation.
         """
-        return DataLoader(self._valid_split, batch_size=self.batch_size, shuffle=True)
+        return DataLoader(self._valid_split, batch_size=self.batch_size, shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
         """
