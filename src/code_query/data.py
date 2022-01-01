@@ -358,9 +358,10 @@ class CSNetDataModule(pl.LightningDataModule):
         Add data module specific arguments to a parent `ArgumentParser`
         """
         parser = parent_parser.add_argument_group("CSNetDataModule")
-        parser.add_argument("--batch-size", type=int, default=10)
-        parser.add_argument("--code-lang", type=str, choices=DATA.AVAILABLE_LANGUAGES)
-        parser.add_argument("--query-langs", type=List[str], required=False, default=None)
+        parser.add_argument("--batch_size", type=int, default=10)
+        parser.add_argument("--code_lang", type=str, choices=DATA.AVAILABLE_LANGUAGES)
+        parser.add_argument("--query_langs", type=List[str], required=False, default=None)
+        parser.add_argument("--num_workers", type=int, default=1)
         parser.add_argument("--tiny", action="store_true")
         return parent_parser
 
@@ -381,11 +382,7 @@ class CSNetDataModule(pl.LightningDataModule):
         """
         super().__init__()
         self.save_hyperparameters(hparams)
-        self.code_lang = hparams.code_lang
-        self.query_langs = hparams.query_langs
-        self.model_name = hparams.encoder_type.value.upper()
-        self.batch_size = hparams.batch_size
-        self.tiny = hparams.tiny
+        self._model_name = hparams.encoder_type.value.upper()
         # Internal member fields for holding data splits
         self._train_split = None
         self._valid_split = None
@@ -395,7 +392,12 @@ class CSNetDataModule(pl.LightningDataModule):
         """
         Takes care of downloading and processing the data, saving the results to disk for later.
         """
-        CSNetDataset(self.model_name, self.code_lang, self.query_langs, tiny=self.tiny)
+        CSNetDataset(
+            self._model_name,
+            self.hparams.code_lang,
+            self.hparams.query_langs,
+            tiny=self.hparams.tiny
+        )
         
     def setup(self, stage: Optional[str]=None) -> None:
         """
@@ -405,7 +407,13 @@ class CSNetDataModule(pl.LightningDataModule):
         data is intended for the final NDGC relevance evaluation over the whole dataset.
         """
         if stage in ("fit", "validate", "test", None):
-            corpus_dataset = CSNetDataset(self.model_name, self.code_lang, self.query_langs, training=True, tiny=self.tiny)
+            corpus_dataset = CSNetDataset(
+                self._model_name,
+                self.hparams.code_lang,
+                self.hparams.query_langs,
+                training=True,
+                tiny=self.hparams.tiny
+            )
             # Define the split sizes
             N = len(corpus_dataset)
             splits = [int(split * N) for split in TRAINING.DATA_SPLITS]
@@ -423,20 +431,35 @@ class CSNetDataModule(pl.LightningDataModule):
         """
         Returns the PyTorch `DataLoader` for model training.
         """
-        return DataLoader(self._train_split, batch_size=self.batch_size, shuffle=True)
+        return DataLoader(
+            self._train_split,
+            batch_size=self.hparams.batch_size,
+            shuffle=True,
+            num_workers=self.hparams.num_workers
+        )
             
     def val_dataloader(self) -> DataLoader:
         """
         Returns the PyTorch `DataLoader` for model validation.
         """
-        return DataLoader(self._valid_split, batch_size=self.batch_size, shuffle=False)
+        return DataLoader(
+            self._valid_split,
+            batch_size=self.hparams.batch_size,
+            shuffle=False,
+            num_workers=self.hparams.num_workers
+        )
 
     def test_dataloader(self) -> DataLoader:
         """
         Returns the PyTorch `DataLoader` for model testing. Uses fixed batches as per the
         original CodeSearchNet paper.
         """        
-        return DataLoader(self._test_split, batch_size=self.batch_size, shuffle=False)
+        return DataLoader(
+            self._test_split,
+            batch_size=self.hparams.batch_size,
+            shuffle=False,
+            num_workers=self.hparams.num_workers
+        )
 
     def predict_dataloader(self) -> DataLoader:
         """
