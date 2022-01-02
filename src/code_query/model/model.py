@@ -8,6 +8,7 @@ import torch
 from torch import nn
 from torch import optim
 import pytorch_lightning as pl
+from torchmetrics import RetrievalMRR
 
 from code_query.model.encoder import Encoder
 
@@ -61,6 +62,8 @@ class CodeQuery(pl.LightningModule):
         self.fc = nn.Linear(in_features=hparams.enc_h_dim, out_features=hparams.cq_h_dim)
         self.bn = nn.BatchNorm1d(hparams.cq_h_dim)
         self.drop = nn.Dropout(p=hparams.cq_dropout)
+        # For test loss
+        self.mrr = RetrievalMRR()
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         """
@@ -129,6 +132,19 @@ class CodeQuery(pl.LightningModule):
         loss = self._training_loss(h_codes, h_queries)
         self.log("valid/loss", loss)
         return loss
+
+    def test_step(self, X: Any, idx: int) -> None:
+        """
+        Performs a single test step over a batch, logging the MRR loss over the entire epoch
+        """
+        h_codes, h_queries = self._encoded_pair(X)
+        mat = h_queries @ h_codes.T  # (queries, codes)
+        n = mat.shape[0]
+        preds = mat.view(-1)  # Reshaped on rows, grouped by query
+        target = torch.eye(n, dtype=int).view(-1)
+        indexes = torch.cat([torch.full(size=(n,), fill_value=i) for i in range(n*idx, n*(idx+1))])
+        self.mrr(preds, target, indexes)
+        self.log("test/mrr", self.mrr, on_step=False, on_epoch=True)
 
     def configure_optimizers(self) -> None:
         """
