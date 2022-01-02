@@ -62,17 +62,23 @@ class CSNetDataManager(object):
         self._query_langs = query_langs
         self._code_lang = code_lang
         self._tiny = tiny
+    
+    def _ensure_downloaded(self):
+        """
+        Takes care of downloading and processing CodeSearchNet data if needed.
+        Does nothing if both downloaded and processed data is cached to file.
+        """
         # Check if the raw data for the given language is available
-        if not CSNetDataManager.has_downloaded(code_lang):
-            logger.info("Did not find data for %s. Downloading now." % code_lang)
-            CSNetDataManager.download_raw(code_lang)
+        if not CSNetDataManager.has_downloaded(self._code_lang):
+            logger.info("Did not find data for %s. Downloading now." % self._code_lang)
+            CSNetDataManager.download_raw(self._code_lang)
         else:
-            logger.info("Found downloaded data for %s" % code_lang)
-        if not CSNetDataManager.has_processed(code_lang):
-            logger.info("Did not find processed data for %s. Processing now." % code_lang)
-            CSNetDataManager.process_raw(code_lang, query_langs)
+            logger.info("Found downloaded data for %s" % self._code_lang)
+        if not CSNetDataManager.has_processed(self._code_lang):
+            logger.info("Did not find processed data for %s. Processing now." % self._code_lang)
+            CSNetDataManager.process_raw(self._code_lang, self._query_langs)
         else:
-            logger.info("Found processed data for %s" % code_lang)
+            logger.info("Found processed data for %s" % self._code_lang)
     
     @cached_property
     def corpus(self) -> pd.DataFrame:
@@ -95,6 +101,7 @@ class CSNetDataManager(object):
         """
         Load a given .jsonl.gz file into a Pandas `DataFrame`.
         """
+        self._ensure_downloaded()
         data_stream = jsonl_gzip_load(path)
         if self._tiny:
             data_stream = islice(data_stream, DATA.TINY_SIZE)
@@ -185,28 +192,23 @@ class CSNetDataset(Dataset):
         self._model_name = model_name
         self._code_lang = code_lang
         self._query_langs = query_langs
+        self._training = training
         self._data_manager = CSNetDataManager(code_lang, query_langs, tiny=tiny)
-        self._source_data = self._data_manager.corpus if training else self._data_manager.eval
-        logger.info("Setting up CodeSearchNet dataset")
         logger.debug(
             "model_name=%s code_lang=%s query_langs=%s training=%s" 
             % (model_name, code_lang, query_langs, training)
         )
-        logger.debug("Found %d rows of data" % len(self._source_data))
-        logger.info("Tokenizing code data")
         code_tokenized = self._tokenized(
             self._get_tokenizer(TRAINING.SEQUENCE_LENGTHS.CODE),
-            self._source_data["code"].values.tolist(),
+            "code",
             self._code_cache_file
         )
-        logger.info("Tokenizing query data")
         query_tokenized = self._tokenized(
             self._get_tokenizer(TRAINING.SEQUENCE_LENGTHS.QUERY),
-            self._source_data["query"].values.tolist(),
+            "query",
             self._query_cache_file
         )
         self._code_and_query = TensorDataset(code_tokenized, query_tokenized)
-        logger.info("Done setting up CodeSearchNet dataset")
 
     def _generic_cache_file(self, name: str) -> str:
         """
@@ -237,7 +239,17 @@ class CSNetDataset(Dataset):
         Path to where pre-tokenized queries should be serialized to and from
         """
         name = f"{self._model_name}_query_tokens.pkl"
-        return self._generic_cache_file(name)
+        return self._generic_cache_file(name, eval_cache=not self._training)
+
+    @property
+    def _source_data(self) -> pd.DataFrame:
+        """
+        Grabs the appropriate Pandas `DataFrame` from the data manager when required
+        """
+        logger.info("Setting up CodeSearchNet dataset for %s" % ("training" if self._training else "evaluation"))
+        source = self._data_manager.corpus if self._training else self._data_manager.eval
+        logger.debug("Found %d rows of data" % len(source))
+        return source
 
     def _get_tokenizer(self, sequence_length: int) -> TokenizerFunction:
         """
