@@ -398,6 +398,13 @@ class CSNetDataModule(pl.LightningDataModule):
             self.hparams.query_langs,
             tiny=self.hparams.tiny
         )
+        CSNetDataset(
+            self._model_name,
+            self.hparams.code_lang,
+            self.hparams.query_langs,
+            tiny=self.hparams.tiny,
+            training=False
+        )
         
     def setup(self, stage: Optional[str]=None) -> None:
         """
