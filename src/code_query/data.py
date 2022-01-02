@@ -210,12 +210,14 @@ class CSNetDataset(Dataset):
         )
         self._code_and_query = TensorDataset(code_tokenized, query_tokenized)
 
-    def _generic_cache_file(self, name: str) -> str:
+    def _generic_cache_file(self, name: str, eval_cache=False) -> str:
         """
         Returns the string path to a generic named model specific cache file
         """
         size = "tiny" if self._data_manager._tiny else "full"
         file = f"{size}_{name}"
+        if eval_cache:  # E.g. for the evaluation tokenized cache files
+            return get_lang_dir(self._code_lang) / Path(file)
         return get_model_dir(self._code_lang, self._query_langs) / Path(file)
 
     @property
@@ -231,7 +233,7 @@ class CSNetDataset(Dataset):
         Path to where pre-tokenized queries should be serialized to and from
         """
         name = f"{self._model_name}_code_tokens.pkl"
-        return self._generic_cache_file(name)
+        return self._generic_cache_file(name, eval_cache=not self._training)
 
     @property
     def _query_cache_file(self) -> Path:
@@ -259,7 +261,7 @@ class CSNetDataset(Dataset):
         name given on initialization. 
         """
         if self._model_name in MODELS:
-            logger.info("Use pretrained tokenizer for %s" % self._model_name)
+            logger.debug("Use pretrained tokenizer for %s" % self._model_name)
             tokenizer = AutoTokenizer.from_pretrained(MODELS[self._model_name])
             return partial(
                 tokenizer.encode,
@@ -268,7 +270,7 @@ class CSNetDataset(Dataset):
                 truncation=True,
                 return_tensors="pt"
             )
-        logger.info("No pretrained tokenizer found for %s. Using a BPE tokenizer" % self._model_name)
+        logger.debug("No configured tokenizer found for %s. Using a BPE tokenizer" % self._model_name)
         return self._bpe_tokenizer(sequence_length)
 
     def _bpe_tokenizer(self, max_length: int) -> TokenizerFunction:
@@ -277,7 +279,7 @@ class CSNetDataset(Dataset):
         to a given `max_length`. The tokenizer will be trained on both codes and queries.
         """
         if self._bpe_cache_file.exists():
-            logger.info("Found an existing BPE tokenizer at %s" % self._bpe_cache_file)
+            logger.debug("Found an existing BPE tokenizer at %s" % self._bpe_cache_file)
             tokenizer = Tokenizer.from_file(str(self._bpe_cache_file))
         else:
             logger.info("Training a new BPE tokenizer")
@@ -316,25 +318,28 @@ class CSNetDataset(Dataset):
     def _tokenized(
             self,
             tokenize: TokenizerFunction,
-            data: Sequence,
+            field: str,
             cache_file: Path
         ) -> torch.Tensor:
         """
         Applies a given `TokenizerFunction` to a sequence of strings. The resuls are stacked
         into one tensor of shape (N, L) where N is the number of data samples and L is the
-        maximum length of the model.
+        maximum length of the model. The data is loaded from the data manager in a lazy way, i.e.
+        it will only load text data if there is no pre-tokenized cache file
 
         The results can be serialized to and from a given `cache_file` to save time on subsequent
         training runs
         """ 
         # Check if there are cached features first
         if cache_file.exists():
-            logger.info("Found pretokenized data at %s" % cache_file)
+            logger.debug("Found pretokenized data at %s" % cache_file)
             return torch.load(cache_file)
         
         if not self._data_manager._tiny:
             logger.warning("Tokenizing full data set from scratch. This might take a while")
 
+        # Load in text data from the data manager
+        data = self._source_data[field]
         # Process and save features
         tokens = [tokenize(sample) for sample in tqdm(data, desc="Tokenizing", unit="samples")]
         tokens = torch.stack(tokens, dim=0)
@@ -346,7 +351,7 @@ class CSNetDataset(Dataset):
         """
         The number of samples in the dataset. Needs to be here for the PyTorch Dataset to be valid.
         """
-        return len(self._source_data)
+        return len(self._code_and_query)
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
@@ -475,7 +480,7 @@ class CSNetDataModule(pl.LightningDataModule):
         """        
         return DataLoader(
             self._test_split,
-            batch_size=self.hparams.batch_size,
+            batch_size=TRAINING.MRR_DISTRACTORS + 1,
             shuffle=False,
             num_workers=self.hparams.num_workers
         )
