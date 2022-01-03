@@ -30,4 +30,4 @@ FILES:
                                                           # and split.
   RAW_FULL_FILE: "{language}_dedupe_definitions_v2.pkl"   # Where to find the dedupe pickle file with all the data for
                                                           # a given language.
-TINY_SIZE: 1000  # How many samples to load when using the "tiny" setting
+TINY_SIZE: 5000  # How many samples to load when using the "tiny" setting
