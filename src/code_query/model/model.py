@@ -5,6 +5,7 @@ from argparse import ArgumentParser, Namespace
 from typing import Any, Tuple
 
 import torch
+import torch.nn.functional as F
 from torch import optim
 import pytorch_lightning as pl
 from torchmetrics import RetrievalMRR
@@ -150,5 +151,5 @@ class CodeQuery(pl.LightningModule):
         Sets up optimizers for the model training process configured with the
         `learning_rate` hyperparameter
         """
-        optimizer = optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
+        optimizer = optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
         return optimizer
