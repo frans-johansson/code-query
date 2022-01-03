@@ -123,15 +123,6 @@ class CodeQuery(pl.LightningModule):
         self.log("train/loss", loss, on_step=False, on_epoch=True)
         return loss
 
-    def on_train_batch_end(self, outputs: torch.Tensor, X: Any, idx: int) -> None:
-        if outputs["loss"].isnan():
-            raise ValueError(f"Found NaN loss value at batch index {idx}")
-
-    def on_after_backward(self) -> None:
-        grads = {name: param.grad for name, param in self.named_parameters()}
-        weights = {name: param.data for name, param in self.named_parameters()}
-        pass
-
     def validation_step(self, X: Any, idx: int) -> None:
         """
         Performs a single validation step and returns the loss
