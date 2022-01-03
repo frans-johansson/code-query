@@ -29,8 +29,6 @@ class CodeQuery(pl.LightningModule):
         parser = parent_parser.add_argument_group("CodeQuery")
         parser.add_argument("--encoder_type", type=Encoder.Types)
         parser.add_argument("--learning_rate", type=float, default=0.1)
-        parser.add_argument("--cq_h_dim", type=int, default=128)
-        parser.add_argument("--cq_dropout", type=float, default=0.1)
         # Set up Encoder args
         try:
             temp_args, _ = parent_parser.parse_known_args()
@@ -46,10 +44,6 @@ class CodeQuery(pl.LightningModule):
         Args:
             learning_rate (float): The initial learning rate for the
                 AdamW optimizer. Defaults to 0.1.
-            cq_h_dim (int): The dimensions of the final dense latent
-                space of the codes and queries. Defaults to 128.
-            cq_dropout (float): Dropout rate from the encoder step to
-                the final dense representation. Defaults to 0.1.
             encoder_type (Encoder.Types): Name of the encoder type to use,
                 e.g. "nbow" or "bert".
             encoder_args (kwargs): Additional keyword arguments required by
@@ -59,9 +53,6 @@ class CodeQuery(pl.LightningModule):
         self.save_hyperparameters(hparams)
         EncoderClass = Encoder.get_type(hparams.encoder_type)
         self.encoder = EncoderClass(hparams)
-        self.fc = nn.Linear(in_features=hparams.enc_h_dim, out_features=hparams.cq_h_dim)
-        self.bn = nn.BatchNorm1d(hparams.cq_h_dim)
-        self.drop = nn.Dropout(p=hparams.cq_dropout)
         # For test loss
         self.mrr = RetrievalMRR()
 
@@ -73,12 +64,7 @@ class CodeQuery(pl.LightningModule):
         Args:
             X: A tokenized code or query sequence 
         """
-        encoded = self.encoder(X)
-        out = self.fc(encoded)
-        out = self.bn(out)
-        out = torch.sigmoid(out)
-        out = self.drop(out)
-        return out
+        return self.encoder(X)
 
     def _encoded_pair(self, X: Any) -> Tuple[torch.Tensor]:
         """

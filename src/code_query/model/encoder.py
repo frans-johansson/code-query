@@ -62,9 +62,9 @@ class NbowEncoder(pl.LightningModule, Encoder):
         Add encoder specific arguments to a parent `ArgumentParser`
         """
         parser = parent_parser.add_argument_group("NbowEncoder")
-        parser.add_argument("--enc_e_dim", type=int, default=128)
-        parser.add_argument("--enc_h_dim", type=int, default=128)
-        parser.add_argument("--enc_dropout", type=float, default=0.1)
+        parser.add_argument("--embedding_dim", type=int, default=128)
+        parser.add_argument("--encoding_dim", type=int, default=128)
+        parser.add_argument("--encoder_dropout", type=float, default=0.1)
         return parent_parser
 
     def __init__(self, hparams: Namespace) -> None:
@@ -72,25 +72,26 @@ class NbowEncoder(pl.LightningModule, Encoder):
         Sets up an NBOW encoder for code and queries
 
         Hyperparameters:
-            enc_e_dim (int): Size of the embedding dimensions.
+            embedding_dim (int): Size of the embedding dimensions.
                 Defaults to 128.
-            enc_h_dim (int): Size of the hidden dimensions for each sequence.
+            encoding_dim (int): Size of the hidden dimensions for each sequence.
                 Defaults to 128.
-            enc_dropout (float): Dropout rate. Defaults to 0.1.
+            encoder_dropout (float): Dropout rate. Defaults to 0.1.
         """
         super().__init__()
         self.save_hyperparameters(hparams)
         self.embed = nn.Embedding(
             num_embeddings=TRAINING.VOCABULARY.SIZE,
-            embedding_dim=hparams.enc_e_dim,
-            padding_idx=0
+            embedding_dim=hparams.embedding_dim,
+            padding_idx=0,
+            scale_grad_by_freq=True
         )
         self.fc = nn.Linear(
-            in_features=hparams.enc_e_dim,
-            out_features=hparams.enc_h_dim
+            in_features=hparams.embedding_dim,
+            out_features=hparams.encoding_dim
         )
-        self.bn = nn.BatchNorm1d(hparams.enc_h_dim)
-        self.drop = nn.Dropout(p=hparams.enc_dropout)
+        self.bn = nn.BatchNorm1d(hparams.encoding_dim)
+        self.drop = nn.Dropout(p=hparams.encoder_dropout)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         """
@@ -101,12 +102,12 @@ class NbowEncoder(pl.LightningModule, Encoder):
                 where B is the batch size and L is the sequence length of each sample
 
         Returns: A tensor of shape (B, H) of latent representations, where H is set by the
-            `enc_h_dim` hyperparameter
+            `encoding_dim` hyperparameter
         """
         embeddings = self.embed(X)  # (batch, seq, embedding)
         nbow = torch.mean(embeddings, dim=1)  # (batch, embedding)
         hidden = self.fc(nbow)
         hidden = self.bn(hidden)
-        hidden = torch.sigmoid(hidden)
+        hidden = torch.tanh(hidden)
         hidden = self.drop(hidden)
         return hidden
