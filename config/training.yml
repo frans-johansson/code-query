@@ -9,7 +9,7 @@ DATA_SPLITS:
 # Vocabulary configuration for models without an existing corresponding tokenizer (e.g. BERT).
 # Currently only applies to the NBOW baseline.
 VOCABULARY:
-  SIZE: 10000
+  SIZE: 5000
   INCLUDE_THRESHOLD: 10
 # Settings for sequences used during training
 SEQUENCE_LENGTHS:
