@@ -86,9 +86,16 @@ class CodeQuery(pl.LightningModule):
         pos = mat.diag()  # True code-query pairings
         off = mat.masked_select(~torch.eye(n, dtype=bool)).view(n, n - 1)
         neg = off.exp().sum(dim=1)  # False code-query pairings
-        
-        loss = torch.log(torch.sum(pos / neg + 10e-9))
-        return -loss / n
+        loss = torch.log(torch.sum(pos / (neg + 10e-12)))
+        return -loss
+
+    def _mrr_setup(self, h_codes: torch.Tensor, h_queries: torch.Tensor, idx: int) -> Tuple[torch.Tensor]:
+        mat = h_queries @ h_codes.T  # (queries, codes)
+        n = mat.shape[0]
+        preds = mat.view(-1)  # Reshaped on rows, grouped by query
+        target = torch.eye(n, dtype=int).view(-1)
+        indexes = torch.cat([torch.full(size=(n,), fill_value=i) for i in range(n*idx, n*(idx+1))])
+        return (preds, target, indexes)
 
     def training_step(self, X: Any) -> torch.Tensor:
         """
@@ -101,7 +108,8 @@ class CodeQuery(pl.LightningModule):
         """
         h_codes, h_queries = self._encoded_pair(X)
         loss = self._training_loss(h_codes, h_queries)
-        self.log("train/loss", loss)
+        self.log("train/batch_loss", loss, on_step=True, on_epoch=False)
+        self.log("train/loss", loss, on_step=False, on_epoch=True)
         return loss
 
     def on_train_batch_end(self, outputs: torch.Tensor, X: Any, idx: int) -> None:
@@ -125,19 +133,17 @@ class CodeQuery(pl.LightningModule):
         """
         h_codes, h_queries = self._encoded_pair(X)
         loss = self._training_loss(h_codes, h_queries)
-        self.log("valid/loss", loss)
-        return loss
+        preds, target, indexes = self._mrr_setup(h_codes, h_queries, idx)
+        self.mrr(preds, target, indexes)
+        self.log("valid/loss", loss, on_step=False, on_epoch=True)
+        self.log("valid/mrr", self.mrr, on_step=False, on_epoch=True)
 
     def test_step(self, X: Any, idx: int) -> None:
         """
         Performs a single test step over a batch, logging the MRR loss over the entire epoch
         """
         h_codes, h_queries = self._encoded_pair(X)
-        mat = h_queries @ h_codes.T  # (queries, codes)
-        n = mat.shape[0]
-        preds = mat.view(-1)  # Reshaped on rows, grouped by query
-        target = torch.eye(n, dtype=int).view(-1)
-        indexes = torch.cat([torch.full(size=(n,), fill_value=i) for i in range(n*idx, n*(idx+1))])
+        preds, target, indexes = self._mrr_setup(h_codes, h_queries)
         self.mrr(preds, target, indexes)
         self.log("test/mrr", self.mrr, on_step=False, on_epoch=True)
 
