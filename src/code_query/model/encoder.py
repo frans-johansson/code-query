@@ -4,7 +4,6 @@ Contains various encoders for code and queries which the CodeQuery model utilize
 from abc import ABC, abstractstaticmethod
 from argparse import ArgumentParser, Namespace
 from enum import Enum
-from typing_extensions import Self
 
 import torch
 from torch import nn
@@ -29,7 +28,7 @@ class Encoder(ABC):
         DISTILBERT = "distilbert"
 
     @staticmethod
-    def get_type(encoder_type: Types) -> Self:
+    def get_type(encoder_type: Types):
         """
         Returns a class type corresponding to the given type string or enum
         """
