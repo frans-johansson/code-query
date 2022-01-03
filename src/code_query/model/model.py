@@ -101,10 +101,23 @@ class CodeQuery(pl.LightningModule):
         return loss.mean()
 
     def _mrr_setup(self, encoded_codes: torch.Tensor, encoded_queries: torch.Tensor, idx: int) -> Tuple[torch.Tensor]:
-        mat = encoded_queries @ encoded_codes.T  # (queries, codes)
+        """
+        Prepares a set of encoded codes and queries for the TorchMetrics MRR loss.
+        
+        1.The encoded values are converted to a cosine similarity matrix and flattened
+            row-wise to a preds tensor.
+        2. A target tensor is computed matching up with the diagonal of the cosine similarity
+            matrix (i.e. true pairs are coded as targets).
+        3. An index tensor is constructed to group the target and preds tensors per query,
+            i.e. N contiguous blocks of integers where N is the number of encoded codes and queries.
+
+        Returns a tuple of (preds, target, indexes)  
+        """
+        mat = self._cosine_sim_mat(encoded_queries, encoded_codes)  # (queries, codes)
         n = mat.shape[0]
         preds = mat.view(-1)  # Reshaped on rows, grouped by query
-        target = torch.eye(n, dtype=int).view(-1)
+        target = torch.eye(n, dtype=int).view(-1)  # True where codes and queries match
+        # Indexes will look something like [0, 0, ..., 0, 1, 1, ..., 1, ..., N, N, ..., N]
         indexes = torch.cat([torch.full(size=(n,), fill_value=i) for i in range(n*idx, n*(idx+1))])
         return (preds, target, indexes)
 
