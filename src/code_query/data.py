@@ -459,7 +459,8 @@ class CSNetDataModule(pl.LightningDataModule):
             self._train_split,
             batch_size=self.hparams.batch_size,
             shuffle=True,
-            num_workers=self.hparams.num_workers
+            num_workers=self.hparams.num_workers,
+            pin_memory=True
         )
             
     def val_dataloader(self) -> DataLoader:
@@ -470,7 +471,8 @@ class CSNetDataModule(pl.LightningDataModule):
             self._valid_split,
             batch_size=self.hparams.batch_size,
             shuffle=False,
-            num_workers=self.hparams.num_workers
+            num_workers=self.hparams.num_workers,
+            pin_memory=True
         )
 
     def test_dataloader(self) -> DataLoader:
@@ -482,7 +484,8 @@ class CSNetDataModule(pl.LightningDataModule):
             self._test_split,
             batch_size=TRAINING.MRR_DISTRACTORS + 1,
             shuffle=False,
-            num_workers=self.hparams.num_workers
+            num_workers=self.hparams.num_workers,
+            pin_memory=True
         )
 
     def predict_dataloader(self) -> DataLoader:
