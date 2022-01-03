@@ -1,6 +1,7 @@
 """
 Various helper functions
 """
+import datetime as dt
 from typing import Optional, List
 from pathlib import Path
 import requests
@@ -85,4 +86,4 @@ def get_ckpt_dir(
     """
     root_dir = Path(TRAINING.CKPT_DIR)
     nl_dir = get_nl_dir(query_langs)
-    return root_dir / encoder_type.value / code_lang / nl_dir
+    return root_dir / encoder_type.value / code_lang / nl_dir / dt.datetime.now().strftime("%y%m%d_%H%M")

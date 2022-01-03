@@ -20,6 +20,6 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-def get_run_name(encoder_type: Encoder.Types) -> str:
+def get_run_name(encoder_type: Encoder.Types, prefix=None) -> str:
     timestamp = dt.datetime.now().strftime("%D-%H:%M")
     return f"{encoder_type.value}-{timestamp}"

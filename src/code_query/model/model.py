@@ -5,7 +5,6 @@ from argparse import ArgumentParser, Namespace
 from typing import Any, Tuple
 
 import torch
-from torch import nn
 from torch import optim
 import pytorch_lightning as pl
 from torchmetrics import RetrievalMRR
@@ -72,7 +71,6 @@ class CodeQuery(pl.LightningModule):
         """
         codes = X["code"]
         queries = X["query"]
-
         h_codes = self.forward(codes)
         h_queries = self.forward(queries)
         return (h_codes, h_queries)
@@ -81,7 +79,7 @@ class CodeQuery(pl.LightningModule):
         """
         Computes and returns the training and validation loss for an encoded pair
         """
-        n = self.hparams.batch_size
+        n = h_queries.shape[0]
         mat = h_queries @ h_codes.T  # (queries, codes)
         pos = mat.diag()  # True code-query pairings
         off = mat.masked_select(~torch.eye(n, dtype=bool)).view(n, n - 1)
