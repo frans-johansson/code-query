@@ -66,32 +66,32 @@ class CodeQuery(pl.LightningModule):
         """
         return self.encoder(X)
 
-    def _encoded_pair(self, X: Any) -> Tuple[torch.Tensor]:
+    def _encode_pair(self, X: Any) -> Tuple[torch.Tensor]:
         """
         Encodes a data input of codes and queries and returns a tuple of the results
         """
         codes = X["code"]
         queries = X["query"]
-        h_codes = self.forward(codes)
-        h_queries = self.forward(queries)
-        return (h_codes, h_queries)
+        encoded_codes = self.forward(codes)
+        encoded_queries = self.forward(queries)
+        return (encoded_codes, encoded_queries)
 
-    def _cosine_sim_mat(self, h_queries, h_codes) -> torch.Tensor:
+    def _cosine_sim_mat(self, encoded_queries, encoded_codes) -> torch.Tensor:
         """
         Computes the cosine similarity matrix for two sets of encoded codes and queries,
         such that the values at position (i, j) will be the cosine similarity of the ith
         query compared to the jth code snippet
         """
-        norm_h_queries = h_queries / h_queries.norm(dim=1, keepdim=True)
-        norm_h_codes = h_codes / h_codes.norm(dim=1, keepdim=True)
-        mat = norm_h_queries @ norm_h_codes.T  # (queries, codes)
+        norm_encoded_queries = encoded_queries / encoded_queries.norm(dim=1, keepdim=True)
+        norm_encoded_codes = encoded_codes / encoded_codes.norm(dim=1, keepdim=True)
+        mat = norm_encoded_queries @ norm_encoded_codes.T  # (queries, codes)
         return mat
 
-    def _training_loss(self, h_codes, h_queries) -> torch.Tensor:
+    def _training_loss(self, encoded_codes, encoded_queries) -> torch.Tensor:
         """
         Computes and returns the training and validation loss for an encoded pair
         """
-        mat = self._cosine_sim_mat(h_queries, h_codes)
+        mat = self._cosine_sim_mat(encoded_queries, encoded_codes)
         n = mat.shape[0]
         off = mat.masked_select(~torch.eye(n, dtype=bool, device=self.device)).view(n, n - 1)
 
@@ -100,8 +100,8 @@ class CodeQuery(pl.LightningModule):
         loss = pos + neg
         return loss.mean()
 
-    def _mrr_setup(self, h_codes: torch.Tensor, h_queries: torch.Tensor, idx: int) -> Tuple[torch.Tensor]:
-        mat = h_queries @ h_codes.T  # (queries, codes)
+    def _mrr_setup(self, encoded_codes: torch.Tensor, encoded_queries: torch.Tensor, idx: int) -> Tuple[torch.Tensor]:
+        mat = encoded_queries @ encoded_codes.T  # (queries, codes)
         n = mat.shape[0]
         preds = mat.view(-1)  # Reshaped on rows, grouped by query
         target = torch.eye(n, dtype=int).view(-1)
@@ -117,8 +117,8 @@ class CodeQuery(pl.LightningModule):
                 code and query input tensors of shape (B, L) where B is the batch size
                 and L is the length of each sequence
         """
-        h_codes, h_queries = self._encoded_pair(X)
-        loss = self._training_loss(h_codes, h_queries)
+        encoded_codes, encoded_queries = self._encode_pair(X)
+        loss = self._training_loss(encoded_codes, encoded_queries)
         self.log("train/batch_loss", loss, on_step=True, on_epoch=False)
         self.log("train/loss", loss, on_step=False, on_epoch=True)
         return loss
@@ -142,9 +142,9 @@ class CodeQuery(pl.LightningModule):
                 and L is the length of each sequence
             idx (int): The index of the current validation data sample
         """
-        h_codes, h_queries = self._encoded_pair(X)
-        loss = self._training_loss(h_codes, h_queries)
-        preds, target, indexes = self._mrr_setup(h_codes, h_queries, idx)
+        encoded_codes, encoded_queries = self._encode_pair(X)
+        loss = self._training_loss(encoded_codes, encoded_queries)
+        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries, idx)
         self.mrr(preds, target, indexes)
         self.log("valid/loss", loss, on_step=False, on_epoch=True)
         self.log("valid/mrr", self.mrr, on_step=False, on_epoch=True)
@@ -153,8 +153,8 @@ class CodeQuery(pl.LightningModule):
         """
         Performs a single test step over a batch, logging the MRR loss over the entire epoch
         """
-        h_codes, h_queries = self._encoded_pair(X)
-        preds, target, indexes = self._mrr_setup(h_codes, h_queries)
+        encoded_codes, encoded_queries = self._encode_pair(X)
+        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries)
         self.mrr(preds, target, indexes)
         self.log("test/mrr", self.mrr, on_step=False, on_epoch=True)
 
