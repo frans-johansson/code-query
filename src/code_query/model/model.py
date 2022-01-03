@@ -76,17 +76,29 @@ class CodeQuery(pl.LightningModule):
         h_queries = self.forward(queries)
         return (h_codes, h_queries)
 
+    def _cosine_sim_mat(self, h_queries, h_codes) -> torch.Tensor:
+        """
+        Computes the cosine similarity matrix for two sets of encoded codes and queries,
+        such that the values at position (i, j) will be the cosine similarity of the ith
+        query compared to the jth code snippet
+        """
+        norm_h_queries = h_queries / h_queries.norm(dim=1, keepdim=True)
+        norm_h_codes = h_codes / h_codes.norm(dim=1, keepdim=True)
+        mat = norm_h_queries @ norm_h_codes.T  # (queries, codes)
+        return mat
+
     def _training_loss(self, h_codes, h_queries) -> torch.Tensor:
         """
         Computes and returns the training and validation loss for an encoded pair
         """
-        n = h_queries.shape[0]
-        mat = h_queries @ h_codes.T  # (queries, codes)
-        pos = mat.diag()  # True code-query pairings
-        off = mat.masked_select(~torch.eye(n, dtype=bool)).view(n, n - 1)
-        neg = off.exp().sum(dim=1)  # False code-query pairings
-        loss = torch.log(torch.sum(pos / (neg + 10e-12)))
-        return -loss
+        mat = self._cosine_sim_mat(h_queries, h_codes)
+        n = mat.shape[0]
+        off = mat.masked_select(~torch.eye(n, dtype=bool, device=self.device)).view(n, n - 1)
+
+        pos = 1.0 - mat.diag() # True code-query parings should have low cosine distance
+        neg = F.relu(off).max(dim=1).values  # False pairings should have low cosine similarity
+        loss = pos + neg
+        return loss.mean()
 
     def _mrr_setup(self, h_codes: torch.Tensor, h_queries: torch.Tensor, idx: int) -> Tuple[torch.Tensor]:
         mat = h_queries @ h_codes.T  # (queries, codes)
