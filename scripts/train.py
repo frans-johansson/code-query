@@ -25,6 +25,7 @@ if __name__ == "__main__":
     # Handle command line arguments
     parser = ArgumentParser("CodeQuery training")
     parser.add_argument("--wandb", action="store_true", help="Use Weights & Biases logging")
+    parser.add_argument("--tags", type=str, nargs="+", help="Use Weights & Biases logging", default=None)
     parser = CodeQuery.add_argparse_args(parser)
     parser = CSNetDataModule.add_argparse_args(parser)
     parser = Trainer.add_argparse_args(parser)
@@ -44,7 +45,7 @@ if __name__ == "__main__":
             project=WANDB.PROJECT_NAME,
             save_dir=wandb_dir,
             log_model="all" if hparams.enable_checkpointing else False,
-            tags=[hparams.encoder_type.value, hparams.code_lang, get_nl_dir(hparams.query_langs)]
+            tags=[hparams.encoder_type.value, hparams.code_lang, str(get_nl_dir(hparams.query_langs))]
         )
         logger.watch(model, log="gradients")
 
