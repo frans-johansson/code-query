@@ -1,5 +1,5 @@
 # Available BERT-like models and their corresponding pretrained model names for fetching
 BERT: "bert-base-uncased"
 ROBERTA: "roberta-base"
-DISTILBERT: "distilbert-base"
+DISTILBERT: "distilbert-base-uncased"
 CODEBERT: "microsoft/codebert-base"
