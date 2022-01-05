@@ -4,6 +4,7 @@ Contains various encoders for code and queries which the CodeQuery model utilize
 from abc import ABC, abstractstaticmethod
 from argparse import ArgumentParser, Namespace
 from enum import Enum
+from typing import Any, Dict, Union
 
 import torch
 from torch import nn
@@ -62,7 +63,7 @@ class NbowEncoder(pl.LightningModule, Encoder):
         parser.add_argument("--encoder_dropout", type=float, default=0.1)
         return parent_parser
 
-    def __init__(self, hparams: Namespace) -> None:
+    def __init__(self, hparams: Union[Dict[str, Any], Namespace]) -> None:
         """
         Sets up an NBOW encoder for code and queries
 
@@ -77,16 +78,16 @@ class NbowEncoder(pl.LightningModule, Encoder):
         self.save_hyperparameters(hparams)
         self.embed = nn.Embedding(
             num_embeddings=TRAINING.VOCABULARY.SIZE,
-            embedding_dim=hparams.embedding_dim,
+            embedding_dim=self.hparams.embedding_dim,
             padding_idx=0,
             scale_grad_by_freq=True
         )
         self.fc = nn.Linear(
-            in_features=hparams.embedding_dim,
-            out_features=hparams.encoding_dim
+            in_features=self.hparams.embedding_dim,
+            out_features=self.hparams.encoding_dim
         )
-        self.bn = nn.BatchNorm1d(hparams.encoding_dim)
-        self.drop = nn.Dropout(p=hparams.encoder_dropout)
+        self.bn = nn.BatchNorm1d(self.hparams.encoding_dim)
+        self.drop = nn.Dropout(p=self.hparams.encoder_dropout)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         """

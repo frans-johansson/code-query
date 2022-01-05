@@ -2,7 +2,7 @@
 Defines a Pytorch-Lightning module for setting up and training the CodeQuery model
 """
 from argparse import ArgumentParser, Namespace
-from typing import Any, Tuple
+from typing import Any, Dict, Tuple, Union
 
 import torch
 import torch.nn.functional as F
@@ -37,7 +37,7 @@ class CodeQuery(pl.LightningModule):
             raise ValueError("Please provide a value for the --encoder_type argument")
         return parent_parser
 
-    def __init__(self, hparams: Namespace) -> None:
+    def __init__(self, hparams: Union[Dict[str, Any], Namespace]) -> None:
         """
         Set up a `CodeQuery` model for training
 
@@ -51,7 +51,7 @@ class CodeQuery(pl.LightningModule):
         """
         super().__init__()
         self.save_hyperparameters(hparams)
-        EncoderClass = Encoder.get_type(hparams.encoder_type)
+        EncoderClass = Encoder.get_type(self.hparams.encoder_type)
         self.encoder = EncoderClass(hparams)
         # For test loss
         self.mrr = RetrievalMRR()
@@ -158,7 +158,7 @@ class CodeQuery(pl.LightningModule):
         Performs a single test step over a batch, logging the MRR loss over the entire epoch
         """
         encoded_codes, encoded_queries = self._encode_pair(X)
-        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries)
+        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries, idx)
         self.mrr(preds, target, indexes)
         self.log("test/mrr", self.mrr, on_step=False, on_epoch=True)
 

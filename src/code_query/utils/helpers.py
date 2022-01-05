@@ -78,7 +78,8 @@ def get_model_dir(code_lang: str, query_langs: Optional[List[str]]) -> Path:
 def get_ckpt_dir(
         encoder_type: Encoder.Types,
         code_lang: str,
-        query_langs: Optional[List[str]]
+        query_langs: Optional[List[str]]=None,
+        run_id : Optional[str]=None
     ) -> Path:
     """
     Returns the path to the checkpoint files for a specific type of model
@@ -86,4 +87,7 @@ def get_ckpt_dir(
     """
     root_dir = Path(TRAINING.CKPT_DIR)
     nl_dir = get_nl_dir(query_langs)
-    return root_dir / encoder_type.value / code_lang / nl_dir / dt.datetime.now().strftime("%y%m%d_%H%M")
+    ckpt_dir = root_dir / encoder_type.value / code_lang / nl_dir 
+    if run_id:
+        return ckpt_dir / run_id
+    return  ckpt_dir / dt.datetime.now().strftime("%y%m%d_%H%M")

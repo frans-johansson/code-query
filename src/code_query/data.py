@@ -388,7 +388,8 @@ class CSNetDataModule(pl.LightningDataModule):
 
         Hyperparameters:
             batch_size (int): The number of samples in each mini-batch
-            encoder_type (str): The name of the model being trained, e.g. CodeBERT or NBOW.
+            num_workers (int): The number of workers to use in the data loaders
+            encoder_type (Encoder.Types): The name of the model being trained, e.g. CodeBERT or NBOW.
                 Controls which type of tokenization is applied.
             code_lang (str): The programming language to download or load from disk.
             query_langs ([str], Optional): Specifies which natural languages to filter
@@ -399,7 +400,7 @@ class CSNetDataModule(pl.LightningDataModule):
         """
         super().__init__()
         self.save_hyperparameters(hparams)
-        self._model_name = hparams.encoder_type.value.upper()
+        self._model_name = self.hparams.encoder_type.value.upper()
         # Internal member fields for holding data splits
         self._train_split = None
         self._valid_split = None
