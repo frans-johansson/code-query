@@ -15,9 +15,6 @@ from code_query.config import WANDB, TRAINING
 
 
 if __name__ == "__main__":
-    # Take care of the seed values
-    pl.seed_everything(TRAINING.SEED)
-
     # Handle command line arguments
     parser = ArgumentParser("CodeQuery tuning")
     parser = CodeQuery.add_argparse_args(parser)
