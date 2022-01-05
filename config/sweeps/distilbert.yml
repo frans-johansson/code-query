@@ -1,0 +1,40 @@
+project: code-query
+program: scripts/tune.py
+method: bayes
+metric:
+  name: valid/loss
+  goal: minimize
+parameters:
+  encoder_type:
+    value: distilbert
+  code_lang:
+    value: python
+  learning_rate:
+    distribution: log_uniform
+    min: -8
+    max: -1
+  gradient_clip_val:
+    distribution: uniform
+    min: 0.80
+    max: 1.60
+  encoding_dim:
+    values: [64, 128, 256, 512]
+  encoder_dropout:
+    distribution: uniform
+    min: 0.00
+    max: 0.50
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - "--limit_train_batches"
+  - "900"
+  - "--limit_val_batches"
+  - "100"
+  - "--num_sanity_val_steps"
+  - "0"
+  - "--max_epochs"
+  - "1"
+  - "--gpus"
+  - "1"
+  - ${args}
