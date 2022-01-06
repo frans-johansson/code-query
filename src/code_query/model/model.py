@@ -3,6 +3,7 @@ Defines a Pytorch-Lightning module for setting up and training the CodeQuery mod
 """
 from argparse import ArgumentParser, Namespace
 from typing import Any, Dict, Tuple, Union
+from enum import Enum
 
 import torch
 import torch.nn.functional as F
@@ -14,12 +15,17 @@ from code_query.model.encoder import Encoder
 
 
 class CodeQuery(pl.LightningModule):
-    """
-    Represents the main `CodeQuery` model consisting of a pair of siamese encoder
-    networks which map codes and queries to a common latent space. The model then
-    trained using a simple triplet loss where positive code-query pairs are mapped
-    closer together in the latent space, and negative pairs are mapped further apart
-    """
+    """Base `CodeQuery` class for both dual and siamese variants"""
+    class Types(Enum):
+        SIAMESE="siamese"
+        DUAL="dual"
+
+    def __init__(self, hparams: Union[Namespace, Dict[str, Any]]) -> None:
+        super().__init__()
+        self.save_hyperparameters(hparams)
+        self.EncoderClass = Encoder.get_type(hparams.encoder_type)
+        self.mrr = RetrievalMRR()
+
     @staticmethod
     def add_argparse_args(parent_parser: ArgumentParser):
         """
@@ -37,89 +43,13 @@ class CodeQuery(pl.LightningModule):
             raise ValueError("Please provide a value for the --encoder_type argument")
         return parent_parser
 
-    def __init__(self, hparams: Union[Dict[str, Any], Namespace]) -> None:
-        """
-        Set up a `CodeQuery` model for training
-
-        Args:
-            learning_rate (float): The initial learning rate for the
-                AdamW optimizer. Defaults to 0.1.
-            encoder_type (Encoder.Types): Name of the encoder type to use,
-                e.g. "nbow" or "bert".
-            encoder_args (kwargs): Additional keyword arguments required by
-                the encoder module.
-        """
-        super().__init__()
-        self.save_hyperparameters(hparams)
-        EncoderClass = Encoder.get_type(self.hparams.encoder_type)
-        self.encoder = EncoderClass(hparams)
-        # For test loss
-        self.mrr = RetrievalMRR()
-
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass used for inference. Computes the encoding of either
-        a tokenized code or query tensor.
-        
-        Args:
-            X: A tokenized code or query sequence 
-        """
-        return self.encoder(X)
-
-    def _encode_pair(self, X: Any) -> Tuple[torch.Tensor]:
-        """
-        Encodes a data input of codes and queries and returns a tuple of the results
-        """
-        codes = X["code"]
-        queries = X["query"]
-        encoded_codes = self.forward(codes)
-        encoded_queries = self.forward(queries)
-        return (encoded_codes, encoded_queries)
-
-    def _cosine_sim_mat(self, encoded_queries, encoded_codes) -> torch.Tensor:
-        """
-        Computes the cosine similarity matrix for two sets of encoded codes and queries,
-        such that the values at position (i, j) will be the cosine similarity of the ith
-        query compared to the jth code snippet
-        """
-        norm_encoded_queries = encoded_queries / encoded_queries.norm(dim=1, keepdim=True)
-        norm_encoded_codes = encoded_codes / encoded_codes.norm(dim=1, keepdim=True)
-        mat = norm_encoded_queries @ norm_encoded_codes.T  # (queries, codes)
-        return mat
-
-    def _training_loss(self, encoded_codes, encoded_queries) -> torch.Tensor:
-        """
-        Computes and returns the training and validation loss for an encoded pair
-        """
-        mat = self._cosine_sim_mat(encoded_queries, encoded_codes)
-        n = mat.shape[0]
-        off = mat.masked_select(~torch.eye(n, dtype=bool, device=self.device)).view(n, n - 1)
-
-        pos = 1.0 - mat.diag() # True code-query parings should have low cosine distance
-        neg = F.relu(off).max(dim=1).values  # False pairings should have low cosine similarity
-        loss = pos + neg
-        return loss.mean()
-
-    def _mrr_setup(self, encoded_codes: torch.Tensor, encoded_queries: torch.Tensor, idx: int) -> Tuple[torch.Tensor]:
-        """
-        Prepares a set of encoded codes and queries for the TorchMetrics MRR loss.
-        
-        1.The encoded values are converted to a cosine similarity matrix and flattened
-            row-wise to a preds tensor.
-        2. A target tensor is computed matching up with the diagonal of the cosine similarity
-            matrix (i.e. true pairs are coded as targets).
-        3. An index tensor is constructed to group the target and preds tensors per query,
-            i.e. N contiguous blocks of integers where N is the number of encoded codes and queries.
-
-        Returns a tuple of (preds, target, indexes)  
-        """
-        mat = self._cosine_sim_mat(encoded_queries, encoded_codes)  # (queries, codes)
-        n = mat.shape[0]
-        preds = mat.view(-1)  # Reshaped on rows, grouped by query
-        target = torch.eye(n, dtype=int).view(-1)  # True where codes and queries match
-        # Indexes will look something like [0, 0, ..., 0, 1, 1, ..., 1, ..., N, N, ..., N]
-        indexes = torch.cat([torch.full(size=(n,), fill_value=i) for i in range(n*idx, n*(idx+1))])
-        return (preds, target, indexes)
+    @staticmethod
+    def get_type(type: Types):
+        if type == CodeQuery.Types.SIAMESE:
+            return CodeQuerySiamese
+        if type == CodeQuery.Types.DUAL:
+            return CodeQueryDual
+        raise NotImplementedError()
 
     def training_step(self, X: Any) -> torch.Tensor:
         """
@@ -158,7 +88,7 @@ class CodeQuery(pl.LightningModule):
         Performs a single test step over a batch, logging the MRR loss over the entire epoch
         """
         encoded_codes, encoded_queries = self._encode_pair(X)
-        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries, idx)
+        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries)
         self.mrr(preds, target, indexes)
         self.log("test/mrr", self.mrr, on_step=False, on_epoch=True)
 
@@ -169,3 +99,91 @@ class CodeQuery(pl.LightningModule):
         """
         optimizer = optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
         return optimizer
+    
+    def _cosine_sim_mat(self, encoded_queries: torch.Tensor, encoded_codes: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the cosine similarity matrix for two sets of encoded codes and queries,
+        such that the values at position (i, j) will be the cosine similarity of the ith
+        query compared to the jth code snippet
+        """
+        norm_encoded_queries = encoded_queries / encoded_queries.norm(dim=1, keepdim=True)
+        norm_encoded_codes = encoded_codes / encoded_codes.norm(dim=1, keepdim=True)
+        mat = norm_encoded_queries @ norm_encoded_codes.T  # (queries, codes)
+        return mat
+
+    def _training_loss(self, encoded_codes: torch.Tensor, encoded_queries: torch.Tensor) -> torch.Tensor:
+        """
+        Computes and returns the training and validation loss for an encoded pair
+        """
+        mat = self._cosine_sim_mat(encoded_queries, encoded_codes)
+        n = mat.shape[0]
+        off = mat.masked_select(~torch.eye(n, dtype=bool, device=self.device)).view(n, n - 1)
+
+        pos = 1.0 - mat.diag() # True code-query parings should have low cosine distance
+        neg = F.relu(off).max(dim=1).values  # False pairings should have low cosine similarity
+        loss = pos + neg
+        return loss.mean()
+
+    def _mrr_setup(self, encoded_codes: torch.Tensor, encoded_queries: torch.Tensor, idx: int) -> Tuple[torch.Tensor]:
+        """
+        Prepares a set of encoded codes and queries for the TorchMetrics MRR loss.
+        
+        1.The encoded values are converted to a cosine similarity matrix and flattened
+            row-wise to a preds tensor.
+        2. A target tensor is computed matching up with the diagonal of the cosine similarity
+            matrix (i.e. true pairs are coded as targets).
+        3. An index tensor is constructed to group the target and preds tensors per query,
+            i.e. N contiguous blocks of integers where N is the number of encoded codes and queries.
+
+        Returns a tuple of (preds, target, indexes)  
+        """
+        mat = self._cosine_sim_mat(encoded_queries, encoded_codes)  # (queries, codes)
+        n = mat.shape[0]
+        preds = mat.view(-1)  # Reshaped on rows, grouped by query
+        target = torch.eye(n, dtype=int).view(-1)  # True where codes and queries match
+        # Indexes will look something like [0, 0, ..., 0, 1, 1, ..., 1, ..., N, N, ..., N]
+        indexes = torch.cat([torch.full(size=(n,), fill_value=i) for i in range(n*idx, n*(idx+1))])
+        return (preds, target, indexes)
+
+
+class CodeQuerySiamese(CodeQuery):
+    """
+    Represents the main `CodeQuery` model consisting of a pair of siamese encoder
+    networks which map codes and queries to a common latent space. The model then
+    trained using a simple triplet loss where positive code-query pairs are mapped
+    closer together in the latent space, and negative pairs are mapped further apart
+    """
+    def __init__(self, hparams: Union[Namespace, Dict[str, Any]]) -> None:
+        """
+        Set up a `CodeQuery` model for training
+
+        Args:
+            learning_rate (float): The initial learning rate for the
+                AdamW optimizer. Defaults to 0.1.
+            encoder_type (Encoder.Types): Name of the encoder type to use,
+                e.g. "nbow" or "bert".
+            encoder_args (kwargs): Additional keyword arguments required by
+                the encoder module.
+        """
+        super().__init__(hparams)
+        self.encoder = self.EncoderClass(hparams)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass used for inference. Computes the encoding of either
+        a tokenized code or query tensor.
+        
+        Args:
+            X: A tokenized code or query sequence 
+        """
+        return self.encoder(X)
+
+    def _encode_pair(self, X: Any) -> Tuple[torch.Tensor]:
+        """
+        Encodes a data input of codes and queries and returns a tuple of the results
+        """
+        codes = X["code"]
+        queries = X["query"]
+        encoded_codes = self.forward(codes)
+        encoded_queries = self.forward(queries)
+        return (encoded_codes, encoded_queries)
