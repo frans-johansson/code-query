@@ -85,7 +85,6 @@ class CSNetDataManager(object):
         """
         Provides the concatation of the processed raw training, testing and validation data 
         """
-        assert CSNetDataManager.has_processed(self._code_lang), "Could not find processed language data"
         logger.info("Reading corpus data")
         return self._load_as_dataframe(self._model_dir / "corpus.jsonl.gz")
 
