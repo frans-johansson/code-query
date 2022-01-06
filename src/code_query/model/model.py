@@ -1,6 +1,7 @@
 """
 Defines a Pytorch-Lightning module for setting up and training the CodeQuery model
 """
+from abc import ABC, abstractclassmethod
 from argparse import ArgumentParser, Namespace
 from typing import Any, Dict, Tuple, Union
 from enum import Enum
@@ -14,7 +15,7 @@ from torchmetrics import RetrievalMRR
 from code_query.model.encoder import Encoder
 
 
-class CodeQuery(pl.LightningModule):
+class CodeQuery(pl.LightningModule, ABC):
     """Base `CodeQuery` class for both dual and siamese variants"""
     class Types(Enum):
         SIAMESE="siamese"
@@ -33,6 +34,7 @@ class CodeQuery(pl.LightningModule):
         """
         # Handle model args
         parser = parent_parser.add_argument_group("CodeQuery")
+        parser.add_argument("--model_type", type=CodeQuery.Types, default=CodeQuery.Types.SIAMESE)
         parser.add_argument("--encoder_type", type=Encoder.Types)
         parser.add_argument("--learning_rate", type=float, default=0.1)
         # Set up Encoder args
@@ -45,11 +47,23 @@ class CodeQuery(pl.LightningModule):
 
     @staticmethod
     def get_type(type: Types):
+        """
+        Returns a class type corresponding to the given type string or enum
+        """
         if type == CodeQuery.Types.SIAMESE:
             return CodeQuerySiamese
         if type == CodeQuery.Types.DUAL:
             return CodeQueryDual
         raise NotImplementedError()
+
+    @abstractclassmethod
+    def _encode_pair(self, X: Any) -> Tuple[torch.Tensor]:
+        """
+        Encodes a data input of codes and queries and returns a tuple of the results.
+        The inputs are expected to be a dictionary of batches with keys "code" and
+        "query" for code and query samples respectively.
+        """
+        pass
 
     def training_step(self, X: Any) -> torch.Tensor:
         """
@@ -150,14 +164,14 @@ class CodeQuerySiamese(CodeQuery):
     """
     Represents the main `CodeQuery` model consisting of a pair of siamese encoder
     networks which map codes and queries to a common latent space. The model then
-    trained using a simple triplet loss where positive code-query pairs are mapped
+    trained using a simple triplet-like loss where positive code-query pairs are mapped
     closer together in the latent space, and negative pairs are mapped further apart
     """
     def __init__(self, hparams: Union[Namespace, Dict[str, Any]]) -> None:
         """
         Set up a `CodeQuery` model for training
 
-        Args:
+        Hyperparameters:
             learning_rate (float): The initial learning rate for the
                 AdamW optimizer. Defaults to 0.1.
             encoder_type (Encoder.Types): Name of the encoder type to use,
@@ -186,4 +200,48 @@ class CodeQuerySiamese(CodeQuery):
         queries = X["query"]
         encoded_codes = self.forward(codes)
         encoded_queries = self.forward(queries)
+        return (encoded_codes, encoded_queries)
+
+
+class CodeQueryDual(CodeQuery):
+    """
+    Represents the main `CodeQuery` model consisting two separate encoder
+    networks which map codes and queries to a common latent space. The model then
+    trained using a simple triplet-like loss where positive code-query pairs are mapped
+    closer together in the latent space, and negative pairs are mapped further apart
+    """
+    def __init__(self, hparams: Union[Namespace, Dict[str, Any]]) -> None:
+        """
+        Set up a `CodeQuery` model for training
+
+        Hyperparameters:
+            learning_rate (float): The initial learning rate for the
+                AdamW optimizer. Defaults to 0.1.
+            encoder_type (Encoder.Types): Name of the encoder type to use,
+                e.g. "nbow" or "bert".
+            encoder_args (kwargs): Additional keyword arguments required by
+                the encoder module.
+        """
+        super().__init__(hparams)
+        self.code_encoder = self.EncoderClass(hparams)
+        self.query_encoder = self.EncoderClass(hparams)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass used for inference. Computes the encoding of
+        a tokenized code tensor specifically.
+        
+        Args:
+            X: A tokenized code sequence 
+        """
+        return self.code_encoder(X)
+
+    def _encode_pair(self, X: Any) -> Tuple[torch.Tensor]:
+        """
+        Encodes a data input of codes and queries and returns a tuple of the results
+        """
+        codes = X["code"]
+        queries = X["query"]
+        encoded_codes = self.code_encoder(codes)
+        encoded_queries = self.query_encoder(queries)
         return (encoded_codes, encoded_queries)

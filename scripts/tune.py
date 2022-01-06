@@ -23,7 +23,7 @@ if __name__ == "__main__":
     hparams = parser.parse_args()
     
     # Set up model and data from parsed hyperparameters
-    model = CodeQuery(hparams)
+    model = CodeQuery.get_type(hparams.model_type)(hparams)
     data_module = CSNetDataModule(hparams)
 
     wandb_dir = Path(WANDB.DIR)
