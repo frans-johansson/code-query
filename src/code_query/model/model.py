@@ -24,7 +24,7 @@ class CodeQuery(pl.LightningModule, ABC):
     def __init__(self, hparams: Union[Namespace, Dict[str, Any]]) -> None:
         super().__init__()
         self.save_hyperparameters(hparams)
-        self.EncoderClass = Encoder.get_type(hparams.encoder_type)
+        self.EncoderClass = Encoder.get_type(self.hparams.encoder_type)
         self.mrr = RetrievalMRR()
 
     @staticmethod
@@ -102,7 +102,7 @@ class CodeQuery(pl.LightningModule, ABC):
         Performs a single test step over a batch, logging the MRR loss over the entire epoch
         """
         encoded_codes, encoded_queries = self._encode_pair(X)
-        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries)
+        preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries, idx)
         self.mrr(preds, target, indexes)
         self.log("test/mrr", self.mrr, on_step=False, on_epoch=True)
 
