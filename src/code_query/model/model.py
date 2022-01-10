@@ -103,8 +103,9 @@ class CodeQuery(pl.LightningModule, ABC):
         """
         encoded_codes, encoded_queries = self._encode_pair(X)
         preds, target, indexes = self._mrr_setup(encoded_codes, encoded_queries, idx)
-        self.mrr(preds, target, indexes)
-        self.log("test/mrr", self.mrr, on_step=False, on_epoch=True)
+        loss = self.mrr(preds, target, indexes)
+        self.log("test/mrr", loss, on_step=False, on_epoch=True)
+        return loss
 
     def configure_optimizers(self) -> None:
         """
