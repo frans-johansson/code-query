@@ -91,3 +91,21 @@ def get_ckpt_dir(
     if run_id:
         return ckpt_dir / run_id
     return  ckpt_dir / dt.datetime.now().strftime("%y%m%d_%H%M")
+
+
+def get_ann_dir(
+        encoder_type: Encoder.Types,
+        code_lang: str,
+        query_langs: Optional[List[str]]=None,
+        run_id : Optional[str]=None
+    ) -> Path:
+    """
+    Returns the path to the .ann index files for a specific type
+    of model  under the configured root checkpoint directory
+    """
+    root_dir = Path(TRAINING.ANN_DIR)
+    nl_dir = get_nl_dir(query_langs)
+    ann_dir = root_dir / encoder_type.value / code_lang / nl_dir 
+    if run_id:
+        return ann_dir / run_id
+    return  ann_dir / dt.datetime.now().strftime("%y%m%d_%H%M")

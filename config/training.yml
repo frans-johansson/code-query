@@ -21,6 +21,8 @@ EARLY_STOPPING:
   PATIENCE: 5        # Number of checks with no improvement until trainin is stopped
 # Checkpoint output directory
 CKPT_DIR: "runs/ckpts"
+# Index file output directory
+ANN_DIR: "runs/ann"
 # Sets the number of distractor snippets for computing the MRR metric over the test set
 # This effectively sets the test batch size to 1 + the given value
 MRR_DISTRACTORS: 999

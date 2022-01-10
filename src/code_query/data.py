@@ -3,14 +3,16 @@ Classes for downloading and processing CodeSearchNet (CSNet) data for training.
 Most of the configuration options for these procedures can be controlled in the
 data.yml, training.yml and models.yml configuration files.
 """
+from collections import defaultdict
 import zipfile
 from argparse import ArgumentParser, Namespace
-from typing import Callable, Dict, Iterator, List, Optional, Sequence
+from typing import Callable, Dict, Iterator, List, Optional
 from pathlib import Path
 from functools import cached_property, partial
 from itertools import islice, chain
 
 import torch
+import numpy as np
 import pandas as pd
 import pytorch_lightning as pl
 from torch.utils.data import Dataset, DataLoader
@@ -32,6 +34,25 @@ from code_query.utils.preprocessing import process_evaluation_data, process_trai
 TokenizerFunction = Callable[[str], torch.Tensor]
 
 logger = get_logger("data")
+
+
+def read_relevance_annotations(code_lang: str) -> Dict[str, Dict[str, float]]:
+    """
+    Reads the relevance annotations from a preconfigured .csv file and returns a
+    dictionary with the following schema `{"query": {"url": [relevance_scores]}}`
+
+    Code adapted from: https://github.com/github/CodeSearchNet/blob/master/src/relevanceeval.py
+    under the MIT license.
+    """
+    relevance_annotations = pd.read_csv(DATA.RELEVANCE.ANNOTATIONS).query(f"Language == '{code_lang.capitalize()}'")
+    per_query_language = relevance_annotations.pivot_table(
+        index=['Query', 'GitHubUrl'], values='Relevance', aggfunc=np.mean)
+
+    # Map language -> query -> url -> float
+    relevances = defaultdict(lambda: defaultdict(float))  # type: Dict[str, Dict[str, Dict[str, float]]]
+    for (query, url), relevance in per_query_language['Relevance'].items():
+        relevances[query.lower()][url] = relevance
+    return relevances
 
 
 class CSNetDataManager(object):
@@ -188,6 +209,7 @@ class CSNetDataset(Dataset):
         """
         super().__init__()
         model_name = model_name.upper()
+        self._tokenizer_manager = CSNetTokenizerManager(model_name, code_lang, tiny, query_langs)
         self._model_name = model_name
         self._code_lang = code_lang
         self._query_langs = query_langs
@@ -197,17 +219,19 @@ class CSNetDataset(Dataset):
             "model_name=%s code_lang=%s query_langs=%s training=%s" 
             % (model_name, code_lang, query_langs, training)
         )
-        code_tokenized = self._tokenized(
-            self._get_tokenizer(TRAINING.SEQUENCE_LENGTHS.CODE),
+        tokenized_data = []
+        tokenized_data.append(self._tokenized(
+            self._tokenizer_manager.get_tokenizer(TRAINING.SEQUENCE_LENGTHS.CODE),
             "code",
             self._code_cache_file
-        )
-        query_tokenized = self._tokenized(
-            self._get_tokenizer(TRAINING.SEQUENCE_LENGTHS.QUERY),
-            "query",
-            self._query_cache_file
-        )
-        self._code_and_query = TensorDataset(code_tokenized, query_tokenized)
+        ))
+        if self._training:
+            tokenized_data.append(self._tokenized(
+                self._tokenizer_manager.get_tokenizer(TRAINING.SEQUENCE_LENGTHS.QUERY),
+                "query",
+                self._query_cache_file
+            ))
+        self._tensor_data = TensorDataset(*tokenized_data)
 
     def _generic_cache_file(self, name: str, eval_cache=False) -> str:
         """
@@ -350,17 +374,110 @@ class CSNetDataset(Dataset):
         """
         The number of samples in the dataset. Needs to be here for the PyTorch Dataset to be valid.
         """
-        return len(self._code_and_query)
+        return len(self._tensor_data)
     
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         """
         Get a code-query pair from the internal `TensorDataset` as an appropriately named dictionary.
         """
-        code, query = self._code_and_query[idx] 
-        return {
-            "code": code,
-            "query": query
-        }
+        sample = self._tensor_data[idx]
+        return dict(zip(("code", "query"), sample))
+
+
+class CSNetTokenizerManager:
+    """
+    Handles the various kinds of tokenizers requried by the CodeSearchNet dataset
+    """
+    def __init__(
+            self,
+            model_name: str,
+            code_lang: str,
+            tiny: bool,
+            query_langs: Optional[List[str]]
+        ) -> None:
+        self._model_name = model_name.upper()
+        self._code_lang = code_lang
+        self._tiny = tiny
+        self._query_langs = query_langs
+
+    def _generic_cache_file(self, name: str, eval_cache=False) -> str:
+        """
+        Returns the string path to a generic named model specific cache file
+        """
+        size = "tiny" if self._tiny else "full"
+        file = f"{size}_{name}"
+        if eval_cache:  # E.g. for the evaluation tokenized cache files
+            return get_lang_dir(self._code_lang) / Path(file)
+        return get_model_dir(self._code_lang, self._query_langs) / Path(file)
+
+    @property
+    def _bpe_cache_file(self) -> Path:
+        """
+        Path to where the custom BPE tokenizer should be serialized to and from
+        """
+        return self._generic_cache_file("bpe_tokenizer.json")
+
+    def get_tokenizer(self, sequence_length: int) -> TokenizerFunction:
+        """
+        Get a tokenizer function mapping strings to `torch.Tensor`s for the
+        current dataset. Will either use a pretrained BERT-like tokenizer or
+        train a BPE tokenizer from scratch on the data, depending on the model
+        name given on initialization. 
+        """
+        if self._model_name in MODELS:
+            logger.debug("Use pretrained tokenizer for %s" % self._model_name)
+            tokenizer = AutoTokenizer.from_pretrained(MODELS[self._model_name])
+            return partial(
+                tokenizer.encode,
+                max_length=sequence_length,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt"
+            )
+        logger.debug("No configured tokenizer found for %s. Using a BPE tokenizer" % self._model_name)
+        return self._bpe_tokenizer(sequence_length)
+
+    def _bpe_tokenizer(self, max_length: int) -> TokenizerFunction:
+        """
+        Train or load a previously trained BPE tokenizer which will pad or truncate the data
+        to a given `max_length`. The tokenizer will be trained on both codes and queries.
+        """
+        if self._bpe_cache_file.exists():
+            logger.debug("Found an existing BPE tokenizer at %s" % self._bpe_cache_file)
+            tokenizer = Tokenizer.from_file(str(self._bpe_cache_file))
+        else:
+            logger.info("Training a new BPE tokenizer")
+            tokenizer = Tokenizer(BPE(unk_token="[UNK]"))
+            # This is really silly, but apparently the saved JSON becomes corrput if there is no
+            # pre-tokenizer. This is why we "merge" the pretokenized data in preprocessing.py
+            # in order to have a common input data shape for both BPE and BERT-like tokenizers 
+            tokenizer.pre_tokenizer = Whitespace()
+            trainer = BpeTrainer(
+                vocab_size=TRAINING.VOCABULARY.SIZE,
+                min_frequency=TRAINING.VOCABULARY.INCLUDE_THRESHOLD,
+                special_tokens=["[PAD]", "[UNK]"]
+            )
+            # Train on the corpus which has possibly been filtered on natural language
+            data_pairs = self._data_manager.corpus[["code", "query"]].values.tolist()
+            # Concatenate query and code tokens in each row to one sequence
+            data_stream = chain.from_iterable(data_pairs)
+            # Train on the entire sequence of queries and codes,
+            # and serialize the resulting tokenizer to JSON
+            tokenizer.train_from_iterator(data_stream, trainer)
+            tokenizer.save(str(self._bpe_cache_file))
+            logger.info("Saved BPE tokenizer to %s" % self._bpe_cache_file)
+        
+        logger.debug("BPE tokenizer has vocabulary size %d" % tokenizer.get_vocab_size())
+
+        # Set up padding and truncation to match the BERT-like tokenizers
+        tokenizer.enable_padding(
+            pad_id=tokenizer.token_to_id("[PAD]"),
+            pad_token="[PAD]",
+            length=max_length
+        )
+        tokenizer.enable_truncation(max_length=max_length)
+        # Return a callable with the same interface as for the BERT-like tokenizers
+        return lambda example: torch.tensor(tokenizer.encode(example).ids)
 
 
 class CSNetDataModule(pl.LightningDataModule):
@@ -404,7 +521,8 @@ class CSNetDataModule(pl.LightningDataModule):
         self._train_split = None
         self._valid_split = None
         self._test_split = None
-    
+        self._eval_data = None
+
     def prepare_data(self) -> None:
         """
         Takes care of downloading and processing the data, saving the results to disk for later.
@@ -430,27 +548,27 @@ class CSNetDataModule(pl.LightningDataModule):
         When called with stage set to "predict", the evaluation data is returned. This evaluation
         data is intended for the final NDGC relevance evaluation over the whole dataset.
         """
+        dataset = CSNetDataset(
+            self._model_name,
+            self.hparams.code_lang,
+            self.hparams.query_langs,
+            training=True,
+            tiny=self.hparams.tiny
+        )
         if stage in ("fit", "validate", "test", None):
-            corpus_dataset = CSNetDataset(
-                self._model_name,
-                self.hparams.code_lang,
-                self.hparams.query_langs,
-                training=True,
-                tiny=self.hparams.tiny
-            )
             # Define the split sizes
-            N = len(corpus_dataset)
+            N = len(dataset)
             splits = [int(split * N) for split in TRAINING.DATA_SPLITS]
             diff = N - sum(splits)
             splits[0] += diff
             # Do the random splits and tokenize data
-            self._train_split, self._valid_split, self._test_split = random_split(corpus_dataset, splits)
+            self._train_split, self._valid_split, self._test_split = random_split(dataset, splits)
             
         if stage in ("predict", None):
-            # TODO: Set up prediction data for NDCG
-            # eval_dataset = CSNetDataset(self.model_name, self.code_lang, self.query_langs, training=False)
-            raise NotImplementedError()
-
+            with open(DATA.RELEVANCE.QUERIES, "rt") as source:
+                queries = [query.strip() for query in source]
+            self._eval_data = queries
+    
     def train_dataloader(self) -> DataLoader:
         """
         Returns the PyTorch `DataLoader` for model training.
@@ -492,4 +610,10 @@ class CSNetDataModule(pl.LightningDataModule):
         """
         Returns the PyTorch `DataLoader` for NDCG evaluation.
         """    
-        raise NotImplementedError()
+        return DataLoader(
+            self._eval_data,
+            batch_size=self.hparams.batch_size,
+            shuffle=False,
+            num_workers=self.hparams.num_workers,
+            pin_memory=True
+        )

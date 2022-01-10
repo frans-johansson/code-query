@@ -3,17 +3,25 @@ Defines a Pytorch-Lightning module for setting up and training the CodeQuery mod
 """
 from abc import ABC, abstractclassmethod
 from argparse import ArgumentParser, Namespace
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Tuple, Union
 from enum import Enum
+from pathlib import Path
 
 import torch
 import torch.nn.functional as F
 from torch import optim
 import pytorch_lightning as pl
 from torchmetrics import RetrievalMRR
+from tqdm import tqdm
+from annoy import AnnoyIndex
+import pandas as pd
 
 from code_query.model.encoder import Encoder
+from code_query.config import TRAINING
 
+
+# FIXME: Redefining this from data.py to avoid circular imports for now
+TokenizerFunction = Callable[[str], torch.Tensor]
 
 class CodeQuery(pl.LightningModule, ABC):
     """Base `CodeQuery` class for both dual and siamese variants"""
@@ -26,6 +34,9 @@ class CodeQuery(pl.LightningModule, ABC):
         self.save_hyperparameters(hparams)
         self.EncoderClass = Encoder.get_type(self.hparams.encoder_type)
         self.mrr = RetrievalMRR()
+        self.index = AnnoyIndex(f=self.hparams.encoding_dim, metric="angular")
+        self.eval_lookup = None
+        self.tokenizer = None
 
     @staticmethod
     def add_argparse_args(parent_parser: ArgumentParser):
@@ -107,6 +118,25 @@ class CodeQuery(pl.LightningModule, ABC):
         self.log("test/mrr", loss, on_step=False, on_epoch=True)
         return loss
 
+    def predict_step(self, batch: Any, batch_idx: int) -> Dict[str, List[str]]:
+        return {
+            # TODO: Move n_results to config
+            query: self.search(query, n_results=100)
+            for query in batch
+        }
+
+    def search(self, query: str, n_results: int) -> List[str]:
+        """
+        Returns search results for a given query. Note that this requires
+        the index to be set up with `setup_index` and a tokenizer to be
+        prepared with `set_tokenizer`.
+        """
+        assert self.tokenizer is not None, "Please set the tokenizer with set_tokenizer before running the predictions"
+        tokenized_query = self.tokenizer(query)
+        encoded_query = self.forward(tokenized_query[None])
+        result_idxs = self.index.get_nns_by_vector(encoded_query.squeeze(), n_results)
+        return self.eval_lookup.loc[result_idxs, "url"].values.tolist()
+
     def configure_optimizers(self) -> None:
         """
         Sets up optimizers for the model training process configured with the
@@ -115,6 +145,42 @@ class CodeQuery(pl.LightningModule, ABC):
         optimizer = optim.AdamW(self.parameters(), lr=self.hparams.learning_rate)
         return optimizer
     
+    def setup_predictor(
+            self,
+            eval_lookup: pd.DataFrame,
+            tokenizer: TokenizerFunction
+        ) -> None:
+        """
+        Sets the tokenizer and data lookup to use when predicting search query results.
+        
+        The tokenizer is intended to be applied to search query strings and should be compatible with
+        the programming language, natual languages and encoder type used to work properly.
+        """
+        self.eval_lookup = eval_lookup
+        self.tokenizer = tokenizer
+
+    def setup_index(self, data: Iterable, n_trees: int, ann_dir: Path) -> None:
+        """
+        Indexes the data held by a given iterable which is expected to
+        yield dictionaries of (possibly batched) tensors with at least the key
+        "code". The indexing is done with the `annoy` indexer, which approximates
+        nearest neighbor clustering with a set number of trees which must be specified.
+        """
+        self.eval()  # Unfortunately this is done outside of the predict-loop, so we don't get automatic eval
+        ann_file = ann_dir / "index.ann"
+        if ann_file.exists():
+            self.index.load(str(ann_file))
+            return
+        ann_dir.mkdir(exist_ok=True, parents=True)
+        self.index.set_seed(TRAINING.SEED)
+        for batch_idx, batch in tqdm(enumerate(data), desc="Indexing", total=len(data)):
+            with torch.no_grad():  # We also don't get automatic no-grad
+                encoded = self.forward(batch["code"]).detach().numpy()
+            for idx, sample in enumerate(encoded):
+                self.index.add_item(batch_idx + idx, sample)
+        self.index.build(n_trees)
+        self.index.save(str(ann_file))
+
     def _cosine_sim_mat(self, encoded_queries: torch.Tensor, encoded_codes: torch.Tensor) -> torch.Tensor:
         """
         Computes the cosine similarity matrix for two sets of encoded codes and queries,
