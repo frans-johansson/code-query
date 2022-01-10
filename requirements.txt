@@ -1,8 +1,10 @@
 numpy
 pandas
 transformers
-scikit-learn
 pytorch-lightning
 fasttext
 pycountry
 tqdm
+torch
+annoy
+wandb
