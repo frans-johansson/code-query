@@ -4,14 +4,12 @@ Script for running hyperparameter tuning of CodeQuery models using Weights and B
 from argparse import ArgumentParser
 from pathlib import Path
 
-import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import WandbLogger
-from pytorch_lightning.callbacks import EarlyStopping
 
 from code_query.data import CSNetDataModule
 from code_query.model import CodeQuery
-from code_query.config import WANDB, TRAINING
+from code_query.config import WANDB
 
 
 if __name__ == "__main__":
