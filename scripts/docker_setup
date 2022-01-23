@@ -1,8 +1,0 @@
-#!/bin/sh
-
-set -e
-cd $(dirname "$0")/..
-
-docker build -f docker/data.Dockerfile -t codery:data .
-docker build -f docker/env-gpu.Dockerfile -t codery:gpu .
-docker build -f docker/env-cpu.Dockerfile -t codery:cpu .
